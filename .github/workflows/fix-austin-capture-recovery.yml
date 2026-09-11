@@ -1,0 +1,30 @@
+name: Fix Austin capture recovery
+on:
+  push:
+    branches: [fix-austin-capture-recovery]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix-austin-capture-recovery
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: python scripts/fix_austin_capture_recovery.py
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+        env:
+          TOOLBOX_BASE_PATH: /dylans-toolbox/
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/work-context.ts lib/work-capture-handler.ts lib/work-organized.ts lib/work-preview-schema.ts tests/work-context.test.ts tests/work-organized-evidence.test.ts
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Preserve spoken case identity and action intent"
+          git push origin HEAD:fix-austin-capture-recovery
