@@ -3,6 +3,7 @@ import {useCallback,useEffect,useRef,useState} from 'react';
 import type {Session,SupabaseClient} from '@supabase/supabase-js';
 import {Mic,Square,PenLine,Sun,Layers,CheckCheck,BriefcaseBusiness,House,Wallet,UserRound,Users,Folder,Lightbulb,Inbox,Check,CheckCircle2,Circle,ChevronRight,ArrowLeft,WifiOff,LoaderCircle,Settings2,FileText,Bookmark,CloudUpload,LogOut,ShieldCheck,Box,MessageSquareText,Search,StickyNote,X} from 'lucide-react';
 import {Button} from '@/components/ui/button';
+import {PersonalRecovery} from '@/components/personal-recovery';
 import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
 import {Tabs,TabsContent,TabsList,TabsTrigger} from '@/components/ui/tabs';
@@ -456,6 +457,7 @@ export default function Toolbox(){
         {sheet==='account'&&(session?<div className="stack">
           <p style={{overflowWrap:'anywhere'}}>{session.user.email}</p><p className="muted"><ShieldCheck size={17} style={{display:'inline',verticalAlign:'middle'}}/> Only your signed-in account can access your items.</p>
           <div className="auth-card" style={{marginTop:0}}><h3>Keep it on your Home Screen</h3><p className="muted" style={{marginTop:8}}>In iPhone Safari, tap Share, then Add to Home Screen. Open it once online before using it offline.</p></div>
+          <PersonalRecovery client={clientRef.current!} onRestored={()=>location.reload()}/>
           <p className="muted">Reminders appear in the app when they’re due. This version doesn’t send push notifications.</p>
           {pendingCount>0&&<p className="muted">Your {pendingCount} pending captures or changes stay on this device and resume when you sign back into this account.</p>}
           {unsaved.length>0&&<p>Save or download your unsaved capture before leaving this window.</p>}

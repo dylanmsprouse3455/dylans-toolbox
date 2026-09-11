@@ -6,10 +6,11 @@ const fields = {
   due_date:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().default(null),
 };
 const subtask=z.object({...fields,type:z.literal('task')}).strict();
+const captureItem=z.object({...fields,parent_id:z.string().uuid().nullable().default(null),subtasks:z.array(subtask).max(20)}).strict();
 const update=z.object({item_id:z.string().uuid(),status:z.enum(['active','completed']).nullable(),change_due:z.boolean(),
   due_at:z.string().datetime({offset:true}).nullable(),due_date:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
   title:z.string().min(1).max(180).nullable(),content:z.string().max(12000).nullable(),area:z.enum(AREAS).nullable()}).strict();
-export const organizedCapture=z.object({items:z.array(z.object({...fields,subtasks:z.array(subtask).max(20)}).strict()).max(40),
+export const organizedCapture=z.object({items:z.array(captureItem).max(40),
   updates:z.array(update).max(40).default([]),reply:z.string().max(2000).default('Saved your thoughts.'),needs_clarification:z.boolean().default(false)}).strict();
 const properties={
   type:{type:'string',enum:['task','reminder','note','reference']},title:{type:'string'},content:{type:'string'},area:{type:'string',enum:AREAS},
@@ -20,8 +21,8 @@ const properties={
 const childSchema={type:'object',additionalProperties:false,required:Object.keys(properties),properties:{...properties,type:{type:'string',enum:['task']}}};
 export const outputSchema={
   type:'object',additionalProperties:false,required:['items','updates','reply','needs_clarification'],
-  properties:{items:{type:'array',items:{type:'object',additionalProperties:false,required:[...Object.keys(properties),'subtasks'],
-    properties:{...properties,subtasks:{type:'array',items:childSchema}}}},
+  properties:{items:{type:'array',items:{type:'object',additionalProperties:false,required:[...Object.keys(properties),'parent_id','subtasks'],
+    properties:{...properties,parent_id:{type:['string','null']},subtasks:{type:'array',items:childSchema}}}},
     updates:{type:'array',items:{type:'object',additionalProperties:false,required:['item_id','status','change_due','due_at','due_date','title','content','area'],properties:{
       item_id:{type:'string'},status:{type:['string','null'],enum:['active','completed',null]},change_due:{type:'boolean'},
       due_at:properties.due_at,due_date:properties.due_date,title:{type:['string','null']},content:{type:['string','null']},area:{type:['string','null'],enum:[...AREAS,null]}}}},
@@ -40,6 +41,7 @@ export function captureInstructions(capturedAt:string,timeZone:string,workspace:
     'Handle a ramble with multiple clear completions and new thoughts in one response. The reply will be read aloud: use natural plain speech in one to four short sentences. Say exactly what was created, updated, rescheduled, or completed, including useful details such as the item title and stated day or time. Do not claim to change anything outside the returned operations. If nothing changed, say that clearly. For ordinary conversation with no changes, answer briefly with empty arrays.',
     'Use concise titles. Store supporting details in content. Create subtasks only for explicit related steps, only under a task; do not create speculative steps.',
     'CONNECTED ACTIONS: When the user explicitly describes multiple actions that belong to one outcome or one action is a prerequisite for another, group them under one concise parent task and put the explicit steps in practical execution order. Example: get cat litter and then clean/refill the cat boxes should surface the litter/shopping step before the cleaning/refill step. Do not invent stores, purchases, or errands the user did not state.',
+    'RELATED EXISTING TASKS: Existing personal items may come from older captures. When a genuinely new explicit task is clearly a step of exactly one supplied ACTIVE top-level personal task, set parent_id to that existing task ID so it becomes a connected step instead of an unrelated duplicate. Only task items may use parent_id. Never attach notes, references, reminders, or a task with its own subtasks. If the relationship is merely plausible, leave parent_id null. Never invent an ID and never duplicate an existing task just to make a connection.',
     'GENERAL NOTES: Thoughts that are not actions now but may be useful or relevant later should be stored as note or reference items, not forced into To Do.',
     'Importance: 5 major consequences or key goals, 4 meaningful commitment, 3 ordinary, 2 minor, 1 trivial. Urgency: 5 immediate/overdue, 4 next 1-3 days, 3 this week, 2 later, 1 no time pressure.',
     'Notes/references have importance and urgency 1 and no due date. Do not interpret every thought as a task.',

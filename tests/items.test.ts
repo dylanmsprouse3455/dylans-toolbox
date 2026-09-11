@@ -14,3 +14,17 @@ test('Overdue and near-due reminders surface; far-future low-attention reminders
   const rows=[item('important'),item('overdue',{type:'reminder',importance:1,due_at:'2026-09-10T09:00:00Z'}),item('soon',{importance:1,due_at:'2026-09-12T09:00:00Z'}),item('later',{importance:1,due_at:'2026-10-12T09:00:00Z'})];
   assert.deepEqual(attention(rows,now).map(i=>i.id),['overdue','soon','important']);
 });
+
+test('An untouched low-priority task becomes eligible for Today after 24 hours',()=>{
+  const stale=item('stale',{importance:1,urgency:1,created_at:'2026-09-09T10:00:00Z',last_opened_at:'2026-09-09T10:00:00Z'});
+  const fresh=item('fresh',{importance:1,urgency:1,created_at:'2026-09-11T11:30:00Z',last_opened_at:'2026-09-11T11:30:00Z'});
+  assert.ok(attention([stale,fresh],now).some(i=>i.id==='stale'));
+  assert.equal(attention([stale,fresh],now).some(i=>i.id==='fresh'),false);
+});
+
+test('Today reserves room for an old untouched task even with five stronger fresh items',()=>{
+  const stale=item('stale',{importance:1,urgency:1,created_at:'2026-09-08T10:00:00Z',last_opened_at:'2026-09-08T10:00:00Z'});
+  const fresh=Array.from({length:5},(_,i)=>item('fresh'+i,{importance:5,urgency:5,last_opened_at:'2026-09-11T11:30:00Z'}));
+  const home=attention([...fresh,stale],now);
+  assert.equal(home.length,5);assert.ok(home.some(i=>i.id==='stale'));
+});

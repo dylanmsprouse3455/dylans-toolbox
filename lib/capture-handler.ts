@@ -84,10 +84,15 @@ export async function handleCapture(request:Request,c:CaptureConfig){
       const removed=organized.items.filter(item=>item.area==='Work').length+organized.updates.filter(change=>context.candidates.get(change.item_id)?.area==='Work'||change.area==='Work').length;
       organized.items=organized.items.filter(item=>item.area!=='Work');
       organized.updates=organized.updates.filter(change=>context.candidates.get(change.item_id)?.area!=='Work'&&change.area!=='Work');
+      for(const item of organized.items)if(item.parent_id){
+        const parent=context.candidates.get(item.parent_id);
+        if(item.type!=='task'||item.subtasks.length||!parent||parent.area==='Work'||parent.type!=='task'||parent.status!=='active'||parent.parent_id)throw new Error('ORGANIZE');
+      }
       if(removed)organized.reply=(organized.items.length||organized.updates.length?'I kept the Work part out of Personal and handled the personal part.':'That belongs in Work mode, so I kept it out of Personal.');
     }
     if(workspace==='work'){
       for(const item of organized.items){
+        if(item.parent_id!==null)throw new Error('ORGANIZE');
         item.area='Work';
         if(!isManagedWorkContent(item.content))throw new Error('ORGANIZE');
         item.content=withWorkState(item.content,workState(item.content));
@@ -107,10 +112,10 @@ export async function handleCapture(request:Request,c:CaptureConfig){
     const changes=checkedChanges(organized,context.candidates);
     const rows:Record<string,unknown>[]=[];
     for(const item of organized.items){
-      const id=crypto.randomUUID(),{subtasks,...rest}=item;
+      const id=crypto.randomUUID(),{subtasks,parent_id,...rest}=item;
       const factual=rest.type==='note'||rest.type==='reference';
-      rows.push({...rest,...(factual?{importance:1,urgency:1,due_at:null,due_date:null}:{}),id,parent_id:null});
-      if(item.type==='task')for(const sub of subtasks)rows.push({...sub,id:crypto.randomUUID(),parent_id:id});
+      rows.push({...rest,...(factual?{importance:1,urgency:1,due_at:null,due_date:null}:{}),id,parent_id:parent_id??null});
+      if(item.type==='task'&&!parent_id)for(const sub of subtasks)rows.push({...sub,id:crypto.randomUUID(),parent_id:id});
     }
     const {data:resultTurn,error}=await client.rpc('toolbox_apply_turn',{capture_uuid:m.id,source:text,entries:rows,changes,reply:organized.reply,needs_clarification:organized.needs_clarification});
     if(error){if(error.message.includes('ITEM_CHANGED'))return json({error:'A task changed while I was working. Your message is saved; retry to use its latest version.'},409);throw new Error('STORE');}

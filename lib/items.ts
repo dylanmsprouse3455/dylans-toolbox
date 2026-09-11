@@ -14,12 +14,18 @@ export function actionable(item: Pick<Item,'type'>) { return item.type === 'task
 export function dueTime(item:Pick<Item,'due_at'|'due_date'>){return item.due_at?Date.parse(item.due_at):item.due_date?new Date(item.due_date+'T23:59:59').getTime():Infinity;}
 export function priority(item: Item, now = Date.now()) {
   const hours = (dueTime(item) - now) / 3600000;
-  return item.importance * 12 + item.urgency * 8 + (hours < 0 ? 80 : hours <= 24 ? 60 : hours <= 72 ? 35 : hours <= 168 ? 10 : 0);
+  const seen=Date.parse(item.last_opened_at||item.created_at);
+  const unattended=Number.isFinite(seen)?Math.max(0,(now-seen)/3600000):0;
+  const staleBoost=unattended>=24?Math.min(70,35+Math.floor((unattended-24)/24)*10):0;
+  return item.importance * 12 + item.urgency * 8 + (hours < 0 ? 80 : hours <= 24 ? 60 : hours <= 72 ? 35 : hours <= 168 ? 10 : 0) + staleBoost;
 }
 export function attention(items: Item[], now = Date.now()) {
-  return items.filter(i => actionable(i) && i.status === 'active' && !i.parent_id &&
-    (i.importance >= 4 || i.urgency >= 4 || dueTime(i) <= now + 72 * 3600000))
-    .sort((a,b) => priority(b, now) - priority(a, now) || (a.due_at ?? '9999').localeCompare(b.due_at ?? '9999') || a.created_at.localeCompare(b.created_at)).slice(0,5);
+  const ranked=items.filter(i => actionable(i) && i.status === 'active' && !i.parent_id &&
+    (i.importance >= 4 || i.urgency >= 4 || dueTime(i) <= now + 72 * 3600000 || unopenedForDay(i,now)))
+    .sort((a,b) => priority(b, now) - priority(a, now) || (a.due_at ?? '9999').localeCompare(b.due_at ?? '9999') || a.created_at.localeCompare(b.created_at));
+  const chosen=ranked.slice(0,5),stale=ranked.filter(i=>unopenedForDay(i,now));
+  if(stale.length&&chosen.length===5&&!chosen.some(i=>unopenedForDay(i,now)))chosen[4]=stale[0];
+  return chosen.sort((a,b)=>priority(b,now)-priority(a,now)||(a.due_at??'9999').localeCompare(b.due_at??'9999')||a.created_at.localeCompare(b.created_at));
 }
 export function quadrant(item: Pick<Item,'importance'|'urgency'>) {
   return item.importance >= 4 ? (item.urgency >= 4 ? 'Do first' : 'Make time') : (item.urgency >= 4 ? 'Handle soon' : 'For later');
