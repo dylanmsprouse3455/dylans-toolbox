@@ -41,11 +41,10 @@ export function unopenedForDay(item:Pick<Item,'last_opened_at'|'created_at'|'sta
   return Number.isFinite(seen)&&now-seen>=24*3600000;
 }
 export function completionMoment(item:Pick<Item,'completed_at'|'updated_at'>){return item.completed_at||item.updated_at;}
-export function completionDayKey(item:Pick<Item,'completed_at'|'updated_at'>){const d=new Date(completionMoment(item));return Number.isNaN(d.getTime())?'unknown':d.toISOString().slice(0,10);}
+export function completionDayKey(item:Pick<Item,'completed_at'|'updated_at'>){const d=new Date(completionMoment(item));if(Number.isNaN(d.getTime()))return 'unknown';return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
 export function completionDayLabel(item:Pick<Item,'completed_at'|'updated_at'>,now=new Date()){
   const d=new Date(completionMoment(item));if(Number.isNaN(d.getTime()))return 'Earlier';
-  const today=new Date(now.getFullYear(),now.getMonth(),now.getDate()),day=new Date(d.getFullYear(),d.getMonth(),d.getDate());
-  const diff=Math.round((today.getTime()-day.getTime())/86400000);
+  const diff=Math.round((Date.UTC(now.getFullYear(),now.getMonth(),now.getDate())-Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()))/86400000);
   if(diff===0)return 'Today';if(diff===1)return 'Yesterday';
   return d.toLocaleDateString([],{weekday:'long',month:'short',day:'numeric',year:d.getFullYear()!==now.getFullYear()?'numeric':undefined});
 }

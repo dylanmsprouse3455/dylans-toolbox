@@ -17,5 +17,6 @@ test('24-hour unopened highlighting uses last opened time',()=>{
 });
 
 test('completed items group by durable completed_at',()=>{
-  assert.equal(completionDayKey({completed_at:'2026-09-10T23:00:00Z',updated_at:'2026-09-11T15:00:00Z'}),'2026-09-10');
+  const completed='2026-09-10T12:00:00';
+  assert.equal(completionDayKey({completed_at:completed,updated_at:'2026-09-11T15:00:00Z'}),completionDayKey({completed_at:null,updated_at:completed}));
 });

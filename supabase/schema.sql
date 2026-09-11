@@ -41,7 +41,11 @@ begin
    if new.type<>'capture' and new.last_opened_at is null then new.last_opened_at=coalesce(new.created_at,now()); end if;
    if new.type<>'capture' and new.status='completed' and new.completed_at is null then new.completed_at=now(); end if;
  else
-   new.updated_at=now();
+   if (to_jsonb(new)-'updated_at'-'last_opened_at'-'completed_at') is distinct from (to_jsonb(old)-'updated_at'-'last_opened_at'-'completed_at') then
+     new.updated_at=now();
+   else
+     new.updated_at=old.updated_at;
+   end if;
    if new.type<>'capture' and old.status is distinct from new.status then
      if new.status='completed' then new.completed_at=now(); end if;
      if new.status='active' then new.completed_at=null; end if;

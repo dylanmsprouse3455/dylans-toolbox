@@ -1,24 +1,4 @@
--- Personal-mode history fields used for Done grouping and 24-hour unopened highlighting.
-alter table public.items add column if not exists completed_at timestamptz;
-alter table public.items add column if not exists last_opened_at timestamptz;
-
--- Backfill metadata without making every existing item look newly updated.
-alter table public.items disable trigger toolbox_touch;
-update public.items
-set completed_at=coalesce(completed_at,updated_at)
-where type<>'capture' and status='completed' and completed_at is null;
-
-update public.items
-set last_opened_at=coalesce(last_opened_at,created_at)
-where type<>'capture' and last_opened_at is null;
--- Flush deferred self-reference checks before changing trigger state again.
-set constraints all immediate;
-alter table public.items enable trigger toolbox_touch;
-
-create index if not exists items_owner_completed_at
-  on public.items(user_id,completed_at desc)
-  where type<>'capture' and status='completed';
-
+-- Opening an item is view metadata and must not make its contents look newly changed.
 create or replace function public.toolbox_touch_item() returns trigger language plpgsql set search_path='' as $$
 begin
  if tg_op='INSERT' then
