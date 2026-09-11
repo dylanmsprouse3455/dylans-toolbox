@@ -1,0 +1,43 @@
+name: Check Work Recovery
+on:
+  push:
+    branches: [work-wizard-recovery]
+permissions:
+  contents: write
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add Work wizard draft recovery once
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('app/work-toolbox.tsx')
+          s=p.read_text()
+          anchor="""  const loadEvents=useCallback(async(caseId:string)=>{\n    const client=clientRef.current;if(!client)return;setEventsLoading(true);\n    try{const {data,error}=await client.from('work_events').select('*').eq('case_id',caseId).order('occurred_at',{ascending:false}).limit(100);if(error)throw error;setEvents((data??[]) as WorkEvent[]);}\n    catch(e){setError(errorText(e));}finally{setEventsLoading(false);}\n  },[]);\n\n"""
+          recovery="""  const recoverWizard=useCallback(async()=>{\n    const client=clientRef.current,owner=sessionRef.current?.user.id;if(!client||!owner||!navigator.onLine)return;\n    try{\n      const {data,error}=await client.from('items').select('id,turn_result,created_at').eq('user_id',owner).eq('type','capture').eq('area','Work').eq('status','pending').order('created_at',{ascending:false}).limit(10);\n      if(error)throw error;\n      const pending=(data??[]).find(row=>row.turn_result&&typeof row.turn_result==='object'&&(row.turn_result as {kind?:string}).kind==='work_preview');\n      if(!pending)return;\n      const stored=pending.turn_result as {kind:'work_preview';revision:number;preview:WorkPreviewReceipt['preview']};\n      setWizard(current=>current??{kind:'work_preview',turn_id:pending.id,revision:stored.revision,preview:stored.preview});\n    }catch(e){setError(errorText(e));}\n  },[]);\n\n"""
+          if 'const recoverWizard=useCallback' not in s:
+              if anchor not in s: raise SystemExit('loadEvents anchor not found')
+              s=s.replace(anchor,anchor+recovery)
+          s=s.replace("sessionRef.current=next;setSession(next);setReady(true);if(next)void refresh();else setCases([]);","sessionRef.current=next;setSession(next);setReady(true);if(next){void refresh();void recoverWizard();}else setCases([]);")
+          s=s.replace("  },[refresh]);\n  useEffect(()=>{const wake=()=>void refresh();", "  },[refresh,recoverWizard]);\n  useEffect(()=>{const wake=()=>void refresh();",1)
+          s=s.replace('Nothing on this screen is saved until every check is confirmed.','No Work file changes are saved until every check is confirmed.')
+          p.write_text(s)
+          PY
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add app/work-toolbox.tsx
+            git commit -m "Recover interrupted Work confirmation drafts"
+            git push
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+        env:
+          TOOLBOX_BASE_PATH: /dylans-toolbox/
