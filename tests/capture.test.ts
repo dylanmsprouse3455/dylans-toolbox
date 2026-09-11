@@ -22,20 +22,20 @@ test('Text and audio processing, AI failure, transcript recovery, and idempotent
       assert.equal(req.headers.get('authorization'),'Bearer test-server-only');
       if(url.pathname.includes('transcriptions')){transcriptions++;assert.equal((await req.formData()).get('model'),'gpt-4o-mini-transcribe');return Response.json({text:'Call Sam tomorrow.'});}
       aiCalls++;if(fail)return Response.json({error:'quota'},{status:429});
-      const body=await req.json();assert.equal(body.store,false);assert.ok(body.instructions.includes('2026-09-10T10:00:00-04:00'));
+      const body=await req.json() as {store:boolean;instructions:string};assert.equal(body.store,false);assert.ok(body.instructions.includes('2026-09-10T10:00:00-04:00'));
       return Response.json({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify({items:[{type:'note',title:'Door code',content:'42',area:'Home',importance:5,urgency:5,due_at:'2026-09-11T09:00:00-04:00',subtasks:[]},{type:'task',title:'Call Sam',content:'',area:'People',importance:4,urgency:4,due_at:'2026-09-11T09:00:00-04:00',subtasks:[]}]})}]}]});
     }
     assert.equal(req.headers.get('authorization'),'Bearer test-user-token','All database calls use the caller token, never an admin key');
-    if(url.pathname.endsWith('/rpc/toolbox_save_capture')){const body=await req.json();saved=true;savedRows=body.entries.map((e:object)=>({...e,user_id:owner,capture_id:id}));return Response.json(savedRows);}
+    if(url.pathname.endsWith('/rpc/toolbox_save_capture')){const body=await req.json() as {entries:object[]};saved=true;savedRows=body.entries.map((e:object)=>({...e,user_id:owner,capture_id:id}));return Response.json(savedRows);}
     if(req.method==='HEAD')return new Response(null,{headers:{'content-range':'0-0/1'}});
-    if(req.method==='PATCH'){source=(await req.json()).source_text;return new Response(null,{status:204});}
+    if(req.method==='PATCH'){source=(await req.json() as {source_text:string}).source_text;return new Response(null,{status:204});}
     if(req.method==='POST')return new Response(null,{status:201});
     if(url.searchParams.has('capture_id'))return Response.json(savedRows);
     return Response.json(saved?[{id,status:'processed',source_text:source}]:mode==='retry'?[{id,status:'pending',source_text:source}]:[]);
   };
   try{
     const text=await handleCapture(request(),config);assert.equal(text.status,200);
-    const result=await text.json();assert.equal(result.items.length,2);assert.equal(result.items[0].importance,1);assert.equal(result.items[0].due_at,null);
+    const result=await text.json() as {items:{importance:number;due_at:string|null}[]};assert.equal(result.items.length,2);assert.equal(result.items[0].importance,1);assert.equal(result.items[0].due_at,null);
     const calls=aiCalls;
     assert.equal((await handleCapture(request(),{...config,OPENAI_API_KEY:undefined})).status,200);
     assert.equal(aiCalls,calls,'Already-saved response recovery needs no AI key or request');
@@ -48,3 +48,4 @@ test('Text and audio processing, AI failure, transcript recovery, and idempotent
     assert.equal(transcriptions,1,'Retry reuses the saved transcript');
   }finally{globalThis.fetch=original;}
 });
+
