@@ -37,6 +37,7 @@ export default function Toolbox(){
   const [draft,setDraft]=useState(''),[selected,setSelected]=useState<string|null>(null);
   const [recording,setRecording]=useState(false),[seconds,setSeconds]=useState(0),[starting,setStarting]=useState(false);
   const [liveTranscript,setLiveTranscript]=useState(''),[interimTranscript,setInterimTranscript]=useState(''),[liveWordsAvailable,setLiveWordsAvailable]=useState(true);
+  const [reviewDraft,setReviewDraft]=useState('');
   const [email,setEmail]=useState(''),[password,setPassword]=useState('');
   const [settingPassword,setSettingPassword]=useState(()=>typeof location!=='undefined'&&['invite','recovery'].includes(new URLSearchParams(location.hash.slice(1)).get('type')||''));
   const [authBusy,setAuthBusy]=useState(false),[authMessage,setAuthMessage]=useState('');
@@ -47,7 +48,8 @@ export default function Toolbox(){
   const clientRef=useRef<SupabaseClient|null>(null),sessionRef=useRef<Session|null>(null),itemsRef=useRef<Item[]>([]);
   const lock=useRef(false),refreshLock=useRef(false),recorder=useRef<MediaRecorder|null>(null);
   const recordingOwner=useRef<string|null>(null),recTimer=useRef<ReturnType<typeof setInterval>|null>(null);
-  const recognition=useRef<SpeechRecognitionLike|null>(null),liveTranscriptRef=useRef('');
+  const recognition=useRef<SpeechRecognitionLike|null>(null),liveTranscriptRef=useRef(''),interimTranscriptRef=useRef('');
+  const reviewContext=useRef<{captured_at:string;focus_id?:string;reply_to?:string}|null>(null);
   const unmounted=useRef(false);
   const actionRef=useRef<(text:string)=>Promise<void>>(async()=>{});
   const authGeneration=useRef(0);
@@ -219,51 +221,71 @@ export default function Toolbox(){
     return()=>lifecycle.abort();
   },[]);
   async function microphone(focusId?:string){
-    if(recording){recorder.current?.stop();return;}
+    if(recording){if(recognition.current)recognition.current.stop();else recorder.current?.stop();return;}
     stopSpeaking();
     const owner=sessionRef.current?.user.id;
     if(!owner){setSheet('account');return;}
     const conversation={reply_to:lastTurnRef.current?.id,focus_id:focusId};
-    if(!navigator.mediaDevices?.getUserMedia||typeof MediaRecorder==='undefined'){setError('Voice recording isn’t available here. You can type or use the iPhone keyboard microphone.');setSheet('write');return;}
     setStarting(true);setError('');
+    const capturedAt=new Date().toISOString();
+    const Recognition=(window as SpeechRecognitionWindow).SpeechRecognition??(window as SpeechRecognitionWindow).webkitSpeechRecognition;
+    if(Recognition){
+      const startingDraft=reviewDraft.trim();reviewContext.current={captured_at:capturedAt,...conversation};
+      liveTranscriptRef.current=startingDraft;interimTranscriptRef.current='';setLiveTranscript(startingDraft);setInterimTranscript('');setReviewDraft('');setLiveWordsAvailable(true);setSeconds(0);
+      const live=new Recognition();recognition.current=live;live.continuous=true;live.interimResults=true;live.lang='en-US';
+      live.onresult=event=>{
+        let final='',interim='';
+        for(let i=event.resultIndex;i<event.results.length;i++){
+          const words=event.results[i][0]?.transcript??'';
+          if(event.results[i].isFinal)final=appendSpeech(final,words);else interim=appendSpeech(interim,words);
+        }
+        if(final){liveTranscriptRef.current=appendSpeech(liveTranscriptRef.current,final);setLiveTranscript(liveTranscriptRef.current);}
+        interimTranscriptRef.current=interim;setInterimTranscript(interim);
+      };
+      live.onerror=()=>setLiveWordsAvailable(false);
+      live.onend=()=>{
+        recognition.current=null;if(recTimer.current)clearInterval(recTimer.current);setRecording(false);
+        const complete=appendSpeech(liveTranscriptRef.current,interimTranscriptRef.current);setReviewDraft(complete);setLiveTranscript(complete);setInterimTranscript('');interimTranscriptRef.current='';
+        if(!complete)setError('I didn’t catch any words. Tap the microphone and try again.');
+      };
+      try{
+        live.start();setRecording(true);setSheet(null);setSelected(null);setView('talk');
+        let elapsed=0;recTimer.current=setInterval(()=>{elapsed++;setSeconds(elapsed);if(elapsed>=300)live.stop();},1000);
+      }catch{recognition.current=null;setLiveWordsAvailable(false);setError('The microphone could not start. Check Safari’s microphone permission and try again.');}
+      finally{setStarting(false);}
+      return;
+    }
+    if(!navigator.mediaDevices?.getUserMedia||typeof MediaRecorder==='undefined'){setError('Voice recording isn’t available here. You can type your thought instead.');setSheet('write');setStarting(false);return;}
     let stream:MediaStream|undefined;
     try{
       stream=await navigator.mediaDevices.getUserMedia({audio:true});
       if(sessionRef.current?.user.id!==owner){stream.getTracks().forEach(t=>t.stop());return;}
       const mime=['audio/mp4','audio/webm;codecs=opus','audio/webm'].find(type=>MediaRecorder.isTypeSupported(type));
       const rec=new MediaRecorder(stream,mime?{mimeType:mime}:undefined),chunks:Blob[]=[];
-      const capturedAt=new Date().toISOString();
       recordingOwner.current=owner;recorder.current=rec;setSeconds(0);liveTranscriptRef.current='';setLiveTranscript('');setInterimTranscript('');setLiveWordsAvailable(true);
       rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};
       rec.onerror=()=>{setError('Recording was interrupted. Any recorded audio will be kept.');if(rec.state!=='inactive')rec.stop();};
       rec.onstop=async()=>{
         if(recTimer.current)clearInterval(recTimer.current);
-        recognition.current?.stop();recognition.current=null;setInterimTranscript('');
         stream?.getTracks().forEach(t=>t.stop());setRecording(false);
         const audio=new Blob(chunks,{type:rec.mimeType||mime||'audio/mp4'});
         if(!audio.size){setError('No audio was recorded. Please try again.');return;}
         try{await queue({id:crypto.randomUUID(),user_id:owner,audio,captured_at:capturedAt,time_zone:Intl.DateTimeFormat().resolvedOptions().timeZone,...conversation});}
         catch(e){setError(errorText(e));}
       };
-      const Recognition=(window as SpeechRecognitionWindow).SpeechRecognition??(window as SpeechRecognitionWindow).webkitSpeechRecognition;
-      if(Recognition){
-        const live=new Recognition();recognition.current=live;live.continuous=true;live.interimResults=true;live.lang='en-US';
-        live.onresult=event=>{
-          let final='',interim='';
-          for(let i=event.resultIndex;i<event.results.length;i++){
-            const words=event.results[i][0]?.transcript??'';
-            if(event.results[i].isFinal)final=appendSpeech(final,words);else interim=appendSpeech(interim,words);
-          }
-          if(final){liveTranscriptRef.current=appendSpeech(liveTranscriptRef.current,final);setLiveTranscript(liveTranscriptRef.current);}
-          setInterimTranscript(interim);
-        };
-        live.onerror=()=>setLiveWordsAvailable(false);live.onend=()=>{recognition.current=null;};
-        try{live.start();}catch{setLiveWordsAvailable(false);}
-      }else setLiveWordsAvailable(false);
+      setLiveWordsAvailable(false);
       rec.start(1000);setRecording(true);setSheet(null);setSelected(null);setView('talk');
       let elapsed=0;recTimer.current=setInterval(()=>{elapsed++;setSeconds(elapsed);if(elapsed>=300&&rec.state==='recording')rec.stop();},1000);
     }catch(e){stream?.getTracks().forEach(t=>t.stop());setError(e instanceof DOMException&&e.name==='NotAllowedError'?'Microphone access is off. Allow it in Safari’s website settings, or type your thought.':errorText(e));}
     finally{setStarting(false);}
+  }
+  async function approveReview(){
+    const owner=sessionRef.current?.user.id,context=reviewContext.current,text=reviewDraft.trim();
+    if(!owner||!context||!text)return;
+    try{
+      await queue({id:crypto.randomUUID(),user_id:owner,text,captured_at:context.captured_at,time_zone:Intl.DateTimeFormat().resolvedOptions().timeZone,focus_id:context.focus_id,reply_to:context.reply_to});
+      setReviewDraft('');setLiveTranscript('');reviewContext.current=null;
+    }catch(e){setError(errorText(e));}
   }
   async function changeStatus(item:Item){
     const owner=sessionRef.current?.user.id;if(!owner)return;
@@ -335,6 +357,7 @@ export default function Toolbox(){
   const areaItems=items.filter(i=>i.area===area&&i.status==='active'&&!i.parent_id).sort((a,b)=>b.created_at.localeCompare(a.created_at));
   const completed=items.filter(i=>i.status==='completed'&&!i.parent_id).sort((a,b)=>b.updated_at.localeCompare(a.updated_at));
   const pendingCount=pending.length+pendingChanges;
+  const liveNotes=thoughtLines(recording?liveTranscript:reviewDraft,interimTranscript);
   const loginForm=<form className="stack" onSubmit={e=>void signIn(e)}>
     <label><span className="field-label">Email</span><Input type="email" autoComplete="email" inputMode="email" required value={email} onChange={e=>setEmail(e.target.value)}/></label>
     <label><span className="field-label">Password</span><Input type="password" autoComplete="current-password" required value={password} onChange={e=>setPassword(e.target.value)}/></label>
@@ -343,7 +366,7 @@ export default function Toolbox(){
   </form>;
   if(!session)return <main className="shell"><header className="app-header"><h1>Dylan’s Toolbox</h1></header><section className="auth-card"><ShieldCheck/><h2>Your private toolbox</h2><p className="muted">Access is restricted to the owner. Public signup is closed.</p>{ready?loginForm:<p className="loading">Checking access…</p>}</section></main>;
   if(settingPassword)return <main className="shell"><section className="auth-card"><h1>Set your Toolbox password</h1><p>Your private invitation has been verified.</p><form className="stack" onSubmit={async e=>{e.preventDefault();setAuthBusy(true);setAuthMessage('');try{const {error}=await clientRef.current!.auth.updateUser({password});if(error)throw error;setPassword('');setSettingPassword(false);}catch(e){setAuthMessage(errorText(e));}finally{setAuthBusy(false);}}}><label><span className="field-label">New password</span><Input type="password" autoComplete="new-password" minLength={12} required value={password} onChange={e=>setPassword(e.target.value)}/></label><p className="muted">Use at least 12 characters.</p>{authMessage&&<p role="alert">{authMessage}</p>}<Button type="submit" disabled={authBusy||!online}>{authBusy?'Saving…':'Save password and open Toolbox'}</Button></form></section></main>;
-  return <main className="shell">
+  return <main className={'shell '+(view==='talk'&&(recording||reviewDraft)?'talk-focus':'')}>
     <header className="app-header"><div className="brand"><span className="brand-mark"><Box size={21}/></span><h1>Dylan’s Toolbox</h1></div>
       <Button variant="ghost" size="icon" aria-label="Account and app settings" onClick={()=>setSheet('account')}><Settings2/></Button></header>
     {!online&&<div className="notice"><WifiOff/><span>You’re offline. Captures stay on this device until you reconnect.</span></div>}
@@ -368,24 +391,26 @@ export default function Toolbox(){
           <p className="quiet-note">Only what matters now. Everything else has a place.</p>
         </section>
       </TabsContent>
-      <TabsContent value="talk">
-        <section className="intro"><p className="eyebrow">Your voice space</p><h2>Say what’s on your mind.</h2></section>
-        <section className="capture-card" aria-label="Capture a thought">
+      <TabsContent value="talk" className={recording||reviewDraft?'talk-session':''}>
+        {!recording&&!reviewDraft&&<section className="intro"><p className="eyebrow">Your voice space</p><h2>Say what’s on your mind.</h2></section>}
+        <section className={'capture-card '+(recording||reviewDraft?'expanded':'')} aria-label="Capture a thought">
           <h2>{recording?'I’m listening.':'Talk to your toolbox.'}</h2><p>{recording?'Take your time. Tap when you’re done.':'Share an idea, adjust a reminder, or tell me what you got done.'}</p>
-          <Button className={'mic-button '+(recording?'recording':'')} onClick={()=>void microphone()} disabled={starting||!ready||busy&&!recording} aria-label={recording?'Stop recording and save':'Start voice capture'}>
+          <Button className={'mic-button '+(recording?'recording':'')} onClick={()=>void microphone()} disabled={starting||!ready||busy&&!recording} aria-label={recording?'Stop recording to review':'Start voice capture'}>
             {starting?<LoaderCircle className="spinning"/>:recording?<Square fill="currentColor"/>:<Mic/>}
           </Button>
-          <div className="capture-label" aria-live="polite">{recording?Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0')+' · Tap to finish':'Tap to talk'}</div>
-          <div className="capture-secondary"><Button variant="ghost" disabled={recording} onClick={()=>setSheet(session?'write':'account')}><PenLine/>Or type a thought</Button></div>
+          <div className="capture-label" aria-live="polite">{recording?Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0')+' · Tap to review':reviewDraft?'Draft ready for you':'Tap to talk'}</div>
+          {!recording&&!reviewDraft&&<div className="capture-secondary"><Button variant="ghost" onClick={()=>setSheet(session?'write':'account')}><PenLine/>Or type a thought</Button></div>}
         </section>
-        {(recording||liveTranscript||interimTranscript)&&<section className="live-review" aria-live="polite" aria-label="Live recording review">
-          <div className="section-heading"><h2>Live review</h2><span className="muted">Not saved yet</span></div>
-          {thoughtLines(liveTranscript,interimTranscript).map((line,index)=><p className={'live-thought '+(index===thoughtLines(liveTranscript,interimTranscript).length-1&&!!interimTranscript?'interim':'')} key={index}>{line}</p>)}
-          {!liveWordsAvailable&&<p className="muted">Live words aren’t available here, but your recording is still being captured.</p>}
-          {liveWordsAvailable&&!liveTranscript&&!interimTranscript&&<p className="muted">Start speaking. Your words will appear here.</p>}
-          <p className="live-hint">Keep talking to correct or add details. The Toolbox organizes everything when you tap to finish.</p>
+        {(recording||reviewDraft)&&<section className="live-review" aria-live="polite" aria-label="Live recording notes">
+          <div className="section-heading"><h2>{recording?'Your words':'Review the draft'}</h2><span className="muted">Nothing saved yet</span></div>
+          <div className="live-transcript">{appendSpeech(recording?liveTranscript:reviewDraft,interimTranscript)||'Start speaking. I’m taking notes.'}</div>
+          <h3 className="notes-heading">Draft notes</h3>
+          <ul className="draft-notes">{liveNotes.map((line,index)=><li className={index===liveNotes.length-1&&!!interimTranscript?'interim':''} key={index}>{line}</li>)}</ul>
+          {!recording&&<Textarea aria-label="Edit draft before approval" value={reviewDraft} onChange={e=>{setReviewDraft(e.target.value);setLiveTranscript(e.target.value);}} maxLength={30000}/>} 
+          {!liveWordsAvailable&&recording&&<p className="muted">I’m still listening. Tap to review the recording when you finish.</p>}
+          {recording?<p className="live-hint">Correct me by continuing to talk. Nothing changes until you approve the notes.</p>:<div className="review-actions"><Button onClick={()=>void approveReview()} disabled={!reviewDraft.trim()||busy}><Check/>Approve and organize</Button><Button variant="outline" onClick={()=>void microphone()} disabled={starting||busy}><Mic/>Keep talking</Button></div>}
         </section>}
-        <p className="quiet-note">Your reply will appear in the corner and play aloud.</p>
+        {!recording&&!reviewDraft&&<p className="quiet-note">Your reply will appear in the corner and play aloud.</p>}
       </TabsContent>
       <TabsContent value="areas">
         <section className="intro"><p className="eyebrow">Safely put away</p><h2>{area||'Everything has a place.'}</h2><p className="muted">{area?'Tasks, notes, and references for '+area.toLowerCase()+'.':'Find something when you need it.'}</p></section>
