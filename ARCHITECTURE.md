@@ -1,6 +1,6 @@
 # Dylan’s Toolbox — first version
 
-The product stays deliberately small: capture, automatic organization, attention, areas, and completion.
+The product supports capture, conversational task corrections, automatic organization, attention, areas, and completion.
 
 ## Architecture and data flow
 
@@ -28,7 +28,11 @@ The exact JSON Schema and runtime validator live in lib/capture-schema.ts.
       "content":"Preserved details","area":"Work|Home|Money|Personal|People|Projects|Ideas|Inbox",
       "importance":1,"urgency":1,"due_at":null,"subtasks":[]}]}
 
-Scores are 1–5; 4–5 is high. Subtasks have the same fields except subtasks, and their type is task. The capture's original timestamp and IANA time zone anchor relative dates, including captures processed later. Explicit dates without a time use 9 a.m. local. Uncertain dates remain empty with their original wording in the details. No invented subtasks or commitments.
+Scores are 1–5; 4–5 is high. Subtasks have the same fields except subtasks, and their type is task. The capture's original timestamp and IANA time zone anchor relative dates, including captures processed later. A date without a time uses due_date (YYYY-MM-DD), with due_at null. Explicit times use due_at and leave due_date null. No invented clock times, subtasks, or commitments.
+
+The current contract extends the creation example above with due_date, updates, reply, and needs_clarification; lib/capture-schema.ts is authoritative. lib/conversation.ts retrieves bounded recent/search-matched items and recent turns using the caller's RLS-bound connection. The model may update only these IDs. Server-supplied expected_updated_at values prevent stale edits. Clarification responses cannot modify data.
+
+supabase/conversation.sql adds toolbox_apply_turn. It locks the receipt and targets, validates versions, and atomically creates items, applies edits/completion, and records the assistant reply. Receipts store IDs and a reply instead of duplicated item snapshots. A retry returns current owned rows without reapplying operations. The local cache atomically merges created/updated rows and the reply before removing raw input, and rejects cross-owner or malformed update receipts. Newer cached versions and pending local status changes take precedence over old responses.
 
 ## Stored does not mean displayed
 

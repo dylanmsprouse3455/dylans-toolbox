@@ -1,5 +1,8 @@
 import type { Item } from './items';
-export type Capture={id:string;user_id:string;text?:string;audio?:Blob;captured_at:string;time_zone:string;error?:string};
+export type Capture={id:string;user_id:string;text?:string;audio?:Blob;captured_at:string;time_zone:string;error?:string;focus_id?:string;reply_to?:string};
+export type TurnReceipt={turn_id:string;items:Item[];updated_items:Item[];updated_ids:string[];reply:string;needs_clarification:boolean};
+export type AssistantTurn={id:string;reply:string;needs_clarification:boolean;item_ids:string[]};
+export const displayTurn=(turn:TurnReceipt):AssistantTurn=>({id:turn.turn_id,reply:turn.reply,needs_clarification:turn.needs_clarification,item_ids:[...turn.items.map(item=>item.id),...turn.updated_ids]});
 export type Change={id:string;user_id:string;item_id:string;status:'active'|'completed'};
 type Store='captures'|'changes'|'cache';
 type StoredCapture=Omit<Capture,'audio'>&{audio?:Blob;audioBytes?:ArrayBuffer;audioType?:string};
@@ -42,12 +45,20 @@ export async function allLocal<T>(store:Store):Promise<T[]> {
 export async function capturesFor(userId:string){return(await allLocal<StoredCapture>('captures')).filter(c=>c.user_id===userId).map(({audioBytes,audioType,...capture}):Capture=>({...capture,...(audioBytes?{audio:new Blob([audioBytes],{type:audioType||'application/octet-stream'})}:{})}));}
 export async function changesFor(userId:string){return(await allLocal<Change>('changes')).filter(c=>c.user_id===userId);}
 export async function cachedItems(userId:string):Promise<Item[]>{return(await allLocal<{id:string;items:Item[]}>('cache')).find(c=>c.id===userId)?.items??[];}
+export async function cachedTurn(userId:string):Promise<AssistantTurn|null>{return(await allLocal<{id:string;lastTurn?:AssistantTurn}>('cache')).find(c=>c.id===userId)?.lastTurn??null;}
 
 // Cache the server receipt and remove the raw capture in ONE committed transaction.
 // Any quota error, abort, or interruption leaves the raw capture available to retry.
-export async function acceptCapture(capture:Capture,items:Item[]):Promise<Item[]> {
+export async function acceptCapture(capture:Capture,items:Item[],turn?:TurnReceipt):Promise<Item[]> {
   if(!Array.isArray(items)||items.some(i=>!i||i.user_id!==capture.user_id||i.capture_id!==capture.id)){
     throw new Error('The capture response could not be verified. Your capture is still saved.');
+  }
+  if(turn&&(turn.turn_id!==capture.id||!Array.isArray(turn.updated_items)||!Array.isArray(turn.updated_ids)||
+    typeof turn.reply!=='string'||typeof turn.needs_clarification!=='boolean'||
+    turn.updated_items.some(item=>!item||item.user_id!==capture.user_id||!turn.updated_ids.includes(item.id))||
+    turn.updated_ids.some(id=>!turn.updated_items.some(item=>item.id===id))||
+    turn.needs_clarification&&(items.length>0||turn.updated_items.length>0))){
+    throw new Error('The task changes could not be verified. Your message is still saved.');
   }
   const database=await db();
   return new Promise((resolve,reject)=>{
@@ -58,13 +69,16 @@ export async function acceptCapture(capture:Capture,items:Item[]):Promise<Item[]
     const finish=()=>{
       if(++reads!==2)return;
       const merged=new Map<string,Item>((read.result?.items??[]).map((i:Item)=>[i.id,i]));
-      for(const item of items)merged.set(item.id,item);
+      for(const item of [...items,...(turn?.updated_items??[])]){
+        const prior=merged.get(item.id);
+        if(!prior||Date.parse(prior.updated_at)<=Date.parse(item.updated_at))merged.set(item.id,item);
+      }
       next=[...merged.values()];
       for(const change of changes.result as Change[]){
         if(change.user_id!==capture.user_id)continue;
         for(const item of next)if(item.id===change.item_id||item.parent_id===change.item_id)item.status=change.status;
       }
-      cache.put({id:capture.user_id,items:next});
+      cache.put({id:capture.user_id,items:next,lastTurn:turn?displayTurn(turn):read.result?.lastTurn});
       tx.objectStore('captures').delete(capture.id);
     };
     read.onsuccess=finish;changes.onsuccess=finish;

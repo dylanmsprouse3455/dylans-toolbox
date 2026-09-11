@@ -10,8 +10,8 @@ import {Sheet,SheetContent,SheetTitle,SheetDescription} from '@/components/ui/sh
 import {Select,SelectContent,SelectItem,SelectTrigger,SelectValue} from '@/components/ui/select';
 import {getSupabase} from '@/lib/supabase';
 import {appBase,captureUrl,publicConfig} from '@/lib/public-config';
-import {AREAS,actionable,attention,dueLabel,quadrant,type Area,type Item,type ItemType} from '@/lib/items';
-import {acceptCapture,cachedItems,capturesFor,changesFor,putLocal,removeLocal,type Capture,type Change} from '@/lib/local';
+import {AREAS,actionable,attention,dueLabel,dueTime,quadrant,type Area,type Item,type ItemType} from '@/lib/items';
+import {acceptCapture,cachedItems,cachedTurn,displayTurn,capturesFor,changesFor,putLocal,removeLocal,type Capture,type Change,type TurnReceipt,type AssistantTurn} from '@/lib/local';
 
 const areaIcons={Work:BriefcaseBusiness,Home:House,Money:Wallet,Personal:UserRound,People:Users,Projects:Folder,Ideas:Lightbulb,Inbox};
 const errorText=(e:unknown)=>e instanceof Error?e.message:'Something went wrong. Please try again.';
@@ -24,6 +24,8 @@ export default function Toolbox(){
   const [error,setError]=useState(''),[feedback,setFeedback]=useState('');
   const [pending,setPending]=useState<Capture[]>([]),[pendingChanges,setPendingChanges]=useState(0);
   const [unsaved,setUnsaved]=useState<Capture[]>([]);
+  const [lastTurn,setLastTurn]=useState<AssistantTurn|null>(null);
+  const lastTurnRef=useRef<AssistantTurn|null>(null);
   const [sheet,setSheet]=useState<'write'|'account'|'pending'|null>(null);
   const [draft,setDraft]=useState(''),[selected,setSelected]=useState<string|null>(null);
   const [recording,setRecording]=useState(false),[seconds,setSeconds]=useState(0),[starting,setStarting]=useState(false);
@@ -64,7 +66,7 @@ export default function Toolbox(){
       for(const change of changes)for(const item of records)if(item.id===change.item_id||item.parent_id===change.item_id)item.status=change.status;
       if(sessionRef.current?.user.id!==owner||itemsRef.current!==snapshot)return;
       updateItems(records);
-      await putLocal('cache',{id:owner,items:records});
+      await putLocal('cache',{id:owner,items:records,lastTurn:lastTurnRef.current});
     }finally{refreshLock.current=false;}
   },[updateItems]);
   const sync=useCallback(async()=>{
@@ -89,14 +91,17 @@ export default function Toolbox(){
           form.set('id',capture.id);form.set('captured_at',capture.captured_at);form.set('time_zone',capture.time_zone);
           if(capture.text)form.set('text',capture.text);
           if(capture.audio)form.set('audio',capture.audio,'recording');
+          if(capture.focus_id)form.set('focus_id',capture.focus_id);
+          if(capture.reply_to)form.set('reply_to',capture.reply_to);
           const response=await fetch(captureUrl,{method:'POST',headers:{Authorization:'Bearer '+data.session.access_token,apikey:publicConfig.key},body:form,signal:AbortSignal.timeout(190000)});
-          const result=await response.json() as {error?:string;items:Item[]};
+          const result=await response.json() as TurnReceipt&{error?:string};
           if(!response.ok)throw new Error(result.error||'Your capture is saved. Processing will retry.');
-          const cached=await acceptCapture(capture,result.items);
+          const cached=await acceptCapture(capture,result.items,result.turn_id?result:undefined);
           if(sessionRef.current?.user.id!==owner)break;
           updateItems(cached);
+          if(result.turn_id){const turn=displayTurn(result);lastTurnRef.current=turn;setLastTurn(turn);}
           const newItems=result.items as Item[];
-          setFeedback(newItems.length?'Put away '+newItems.length+' '+(newItems.length===1?'item':'items')+'. We’ll surface what matters.':'Nothing to add from that capture.');
+          setFeedback(result.turn_id?'':newItems.length?'Put away '+newItems.length+' '+(newItems.length===1?'item':'items')+'. We’ll surface what matters.':'Nothing to add from that capture.');
           await updatePending();
         }catch(e){
           capture.error=errorText(e);await putLocal('captures',capture);
@@ -129,9 +134,9 @@ export default function Toolbox(){
         const previous=sessionRef.current?.user.id;
         sessionRef.current=next;setSession(next);
         if(previous!==next?.user.id){
-          updateItems([]);setPending([]);setPendingChanges(0);setSelected(null);setDraft('');setError('');setFeedback('');setSheet(null);setEditing(false);
+          updateItems([]);setPending([]);setPendingChanges(0);setSelected(null);setDraft('');setError('');setFeedback('');setSheet(null);setEditing(false);lastTurnRef.current=null;setLastTurn(null);
           if(next){
-            try{const cache=await cachedItems(next.user.id);if(sessionRef.current?.user.id===next.user.id)updateItems(cache);await updatePending();}catch(e){setError(errorText(e));}
+            try{const [cache,turn]=await Promise.all([cachedItems(next.user.id),cachedTurn(next.user.id)]);if(sessionRef.current?.user.id===next.user.id){updateItems(cache);lastTurnRef.current=turn;setLastTurn(turn);}await updatePending();}catch(e){setError(errorText(e));}
           }
         }
         setReady(true);
@@ -184,7 +189,7 @@ export default function Toolbox(){
     const owner=sessionRef.current?.user.id;
     if(!owner){setSheet('account');throw new Error('Sign in before saving.');}
     if(!text.trim()||text.length>30000)throw new Error('Add a thought under 30,000 characters.');
-    await queue({id:crypto.randomUUID(),user_id:owner,text:text.trim(),captured_at:new Date().toISOString(),time_zone:Intl.DateTimeFormat().resolvedOptions().timeZone});
+    await queue({id:crypto.randomUUID(),user_id:owner,text:text.trim(),captured_at:new Date().toISOString(),time_zone:Intl.DateTimeFormat().resolvedOptions().timeZone,reply_to:lastTurnRef.current?.id});
     setDraft('');setSheet(null);
   }
   actionRef.current=saveText;
@@ -199,10 +204,11 @@ export default function Toolbox(){
       {signal:lifecycle.signal});}catch{}
     return()=>lifecycle.abort();
   },[]);
-  async function microphone(){
+  async function microphone(focusId?:string){
     if(recording){recorder.current?.stop();return;}
     const owner=sessionRef.current?.user.id;
     if(!owner){setSheet('account');return;}
+    const conversation={reply_to:lastTurnRef.current?.id,focus_id:focusId};
     if(!navigator.mediaDevices?.getUserMedia||typeof MediaRecorder==='undefined'){setError('Voice recording isn’t available here. You can type or use the iPhone keyboard microphone.');setSheet('write');return;}
     setStarting(true);setError('');
     let stream:MediaStream|undefined;
@@ -220,10 +226,10 @@ export default function Toolbox(){
         stream?.getTracks().forEach(t=>t.stop());setRecording(false);
         const audio=new Blob(chunks,{type:rec.mimeType||mime||'audio/mp4'});
         if(!audio.size){setError('No audio was recorded. Please try again.');return;}
-        try{await queue({id:crypto.randomUUID(),user_id:owner,audio,captured_at:capturedAt,time_zone:Intl.DateTimeFormat().resolvedOptions().timeZone});}
+        try{await queue({id:crypto.randomUUID(),user_id:owner,audio,captured_at:capturedAt,time_zone:Intl.DateTimeFormat().resolvedOptions().timeZone,...conversation});}
         catch(e){setError(errorText(e));}
       };
-      rec.start(1000);setRecording(true);
+      rec.start(1000);setRecording(true);setSheet(null);setSelected(null);setView('today');
       let elapsed=0;recTimer.current=setInterval(()=>{elapsed++;setSeconds(elapsed);if(elapsed>=300&&rec.state==='recording')rec.stop();},1000);
     }catch(e){stream?.getTracks().forEach(t=>t.stop());setError(e instanceof DOMException&&e.name==='NotAllowedError'?'Microphone access is off. Allow it in Safari’s website settings, or type your thought.':errorText(e));}
     finally{setStarting(false);}
@@ -235,7 +241,7 @@ export default function Toolbox(){
       const change:Change={id:Date.now()+'-'+crypto.randomUUID(),user_id:owner,item_id:item.id,status};
       await putLocal('changes',change);
       const next=itemsRef.current.map(i=>i.id===item.id||i.parent_id===item.id?{...i,status}:i);
-      updateItems(next);await putLocal('cache',{id:owner,items:next});await updatePending();
+      updateItems(next);await putLocal('cache',{id:owner,items:next,lastTurn:lastTurnRef.current});await updatePending();
       setFeedback(status==='completed'?'One less thing to carry.':'Task reopened.');void sync();
     }catch(e){setError(errorText(e));}
   }
@@ -260,7 +266,7 @@ export default function Toolbox(){
   function edit(item:Item){
     setEditTitle(item.title);setEditContent(item.content);setEditArea(item.area);setEditType(item.type);setEditImportance(String(item.importance));setEditUrgency(String(item.urgency));
     const d=item.due_at?new Date(item.due_at):null;
-    setEditDate(d?new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16):'');setEditing(true);
+    setEditDate(d?new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16):item.due_date||'');setEditing(true);
   }
   async function saveEdit(e:React.FormEvent){
     e.preventDefault();if(!current||!clientRef.current)return;
@@ -269,7 +275,7 @@ export default function Toolbox(){
     try{
       const factual=editType==='note'||editType==='reference';
       const {error}=await clientRef.current.from('items').update({title:editTitle.trim(),content:editContent,area:editArea,type:editType,
-        due_at:factual?null:editDate?new Date(editDate).toISOString():null,importance:factual?1:Number(editImportance),urgency:factual?1:Number(editUrgency)}).eq('id',current.id);
+        due_at:!factual&&editDate.includes('T')?new Date(editDate).toISOString():null,due_date:!factual&&editDate&&!editDate.includes('T')?editDate:null,importance:factual?1:Number(editImportance),urgency:factual?1:Number(editUrgency)}).eq('id',current.id);
       if(error)throw error;await refresh();setEditing(false);setFeedback('Updated.');
     }catch(e){setError(errorText(e));}finally{setEditBusy(false);}
   }
@@ -282,13 +288,13 @@ export default function Toolbox(){
     }catch(e){setError(errorText(e));}finally{setEditBusy(false);}
   }
   function row(item:Item){
-    const due=dueLabel(item.due_at),subtasks=items.filter(i=>i.parent_id===item.id);
+    const due=dueLabel(item.due_at,item.due_date),subtasks=items.filter(i=>i.parent_id===item.id);
     return <article className="item" key={item.id}>
       {actionable(item)?<button className={'item-check '+(item.status==='completed'?'complete':'')} onClick={()=>void changeStatus(item)} aria-label={(item.status==='completed'?'Reopen ':'Complete ')+item.title}>{item.status==='completed'?<CheckCircle2/>:<Circle/>}</button>:<span className="item-check">{item.type==='note'?<FileText/>:<Bookmark/>}</span>}
       <button className="item-body" onClick={()=>setSelected(item.id)}>
         <div className="item-title">{item.title}</div>
         <div className="item-meta"><span>{item.area}</span><span aria-hidden>·</span>
-          {due?<span className={Date.parse(item.due_at!)<Date.now()?'overdue':'due'}>{Date.parse(item.due_at!)<Date.now()?'Overdue · ':''}{due}</span>:<span>{actionable(item)?quadrant(item):item.type==='note'?'Note':'Reference'}</span>}
+          {due?<span className={dueTime(item)<Date.now()?'overdue':'due'}>{dueTime(item)<Date.now()?'Overdue · ':''}{due}</span>:<span>{actionable(item)?quadrant(item):item.type==='note'?'Note':'Reference'}</span>}
           {!!subtasks.length&&<span className="pill">{subtasks.filter(i=>i.status==='completed').length}/{subtasks.length} steps</span>}
         </div>
       </button><ChevronRight size={17} className="muted" aria-hidden/>
@@ -320,12 +326,18 @@ export default function Toolbox(){
     </section>)}
     {pendingCount>0&&<button className="notice" style={{width:'100%',textAlign:'left'}} onClick={()=>setSheet('pending')}><CloudUpload/><span>{busy?'Organizing your thoughts…':pendingCount+' '+(pendingCount===1?'capture or change is':'captures or changes are')+' waiting to sync'}</span><ChevronRight size={17}/></button>}
     <div aria-live="polite" aria-atomic="true">{feedback&&<p className="feedback">{feedback}</p>}</div>
+    {lastTurn&&<section className="auth-card stack" aria-label="Toolbox reply" aria-live="polite" style={{marginTop:16}}>
+      <h2>{lastTurn.needs_clarification?'One detail before I change anything':'Toolbox'}</h2><p>{lastTurn.reply}</p>
+      {lastTurn.item_ids.slice(0,8).map(id=>items.find(item=>item.id===id)).filter((item):item is Item=>!!item).map(item=><Button key={item.id} variant="outline" style={{height:'auto',whiteSpace:'normal',justifyContent:'flex-start',textAlign:'left'}} onClick={()=>setSelected(item.id)}>{item.title} · {item.status==='completed'?'Completed':dueLabel(item.due_at,item.due_date)||'Saved'}</Button>)}
+      {lastTurn.item_ids.length>8&&<p className="muted">All {lastTurn.item_ids.length} affected items are available in Areas and Completed.</p>}
+      <p className="muted">Use the microphone below to reply, make a correction, or tell me what you finished.</p>
+    </section>}
     <Tabs value={view} onValueChange={setView}>
       <TabsContent value="today">
         <section className="intro"><p className="eyebrow">{today||'Your space to think'}</p><h2>A little less on your mind.</h2></section>
         <section className="capture-card" aria-label="Capture a thought">
-          <h2>{recording?'I’m listening.':'What’s on your mind?'}</h2><p>{recording?'Take your time. Tap when you’re done.':'Say it however it comes. We’ll sort it out.'}</p>
-          <Button className={'mic-button '+(recording?'recording':'')} onClick={()=>void microphone()} disabled={starting||!ready} aria-label={recording?'Stop recording and save':'Start voice capture'}>
+          <h2>{recording?'I’m listening.':'Talk to your toolbox.'}</h2><p>{recording?'Take your time. Tap when you’re done.':'Share an idea, adjust a reminder, or tell me what you got done.'}</p>
+          <Button className={'mic-button '+(recording?'recording':'')} onClick={()=>void microphone()} disabled={starting||!ready||busy&&!recording} aria-label={recording?'Stop recording and save':'Start voice capture'}>
             {starting?<LoaderCircle className="spinning"/>:recording?<Square fill="currentColor"/>:<Mic/>}
           </Button>
           <div className="capture-label" aria-live="polite">{recording?Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0')+' · Tap to finish':'Tap to talk'}</div>
@@ -352,7 +364,7 @@ export default function Toolbox(){
         <SheetDescription>{sheet==='write'?'One thought or a whole ramble. We’ll find the useful pieces.':sheet==='pending'?'These will retry while the app is open and connected.':session?'Your thoughts, your space.':'Sign in to save and sync your thoughts across devices.'}</SheetDescription>
         {sheet==='write'&&<form className="stack" onSubmit={e=>{e.preventDefault();void saveText().catch(e=>setError(errorText(e)));}}>
           <Textarea aria-label="Your thoughts" value={draft} onChange={e=>setDraft(e.target.value)} maxLength={30000} placeholder="Remind me to call Sam tomorrow. Also, the paint we liked was…" autoFocus/>
-          <Button type="submit" disabled={!draft.trim()}><Check/>Save my thoughts</Button>
+          <Button type="submit" disabled={!draft.trim()||busy}><Check/>Send to Toolbox</Button>
         </form>}
         {sheet==='pending'&&<div className="stack">
           {pending.map(p=><div key={p.id} className="auth-card" style={{marginTop:0,padding:16}}><h3>{p.audio?'Voice capture':'Written capture'}</h3><p className="muted">{new Date(p.captured_at).toLocaleString()}</p>{p.text&&<p className="detail-content" style={{marginTop:8}}>{p.text}</p>}{p.audio&&<AudioPlayback blob={p.audio}/>}<CaptureDownload capture={p}/><p className="muted" style={{marginTop:10,fontSize:'.9rem'}}>{p.error||'Waiting to organize.'}</p></div>)}
@@ -378,12 +390,13 @@ export default function Toolbox(){
           <label><span className="field-label">Details</span><Textarea maxLength={12000} value={editContent} onChange={e=>setEditContent(e.target.value)}/></label>
           <div className="form-grid"><div><span className="field-label">Area</span><Select value={editArea} onValueChange={v=>setEditArea(v as Area)}><SelectTrigger aria-label="Area"><SelectValue/></SelectTrigger><SelectContent>{AREAS.map(a=><SelectItem key={a} value={a}>{a}</SelectItem>)}</SelectContent></Select></div>
             <div><span className="field-label">Type</span><Select value={editType} disabled={!!current.parent_id||items.some(i=>i.parent_id===current.id)} onValueChange={v=>setEditType(v as ItemType)}><SelectTrigger aria-label="Type"><SelectValue/></SelectTrigger><SelectContent>{['task','reminder','note','reference'].map(t=><SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div></div>
-          {(editType==='task'||editType==='reminder')&&<><label><span className="field-label">Due date (your local time)</span><Input type="datetime-local" value={editDate} onChange={e=>setEditDate(e.target.value)}/></label><div className="form-grid">
+          {(editType==='task'||editType==='reminder')&&<><label><span className="field-label">Due day</span><Input type="date" value={editDate.split('T')[0]} onChange={e=>setEditDate(e.target.value?(e.target.value+(editDate.includes('T')?'T'+editDate.split('T')[1]:'')):'')}/></label><label><span className="field-label">Time (optional, your local time)</span><Input type="time" disabled={!editDate} value={editDate.split('T')[1]||''} onChange={e=>setEditDate(editDate.split('T')[0]+(e.target.value?'T'+e.target.value:''))}/></label><div className="form-grid">
             <Score label="Importance" value={editImportance} onChange={setEditImportance}/><Score label="Urgency" value={editUrgency} onChange={setEditUrgency}/></div></>}
           <Button type="submit" disabled={editBusy||!editTitle.trim()}>Save changes</Button><Button type="button" variant="ghost" onClick={()=>setEditing(false)}>Cancel</Button>
         </form>:<div className="stack">
           {current.content&&<p className="detail-content">{current.content}</p>}
-          {current.due_at&&<p className="due">{dueLabel(current.due_at)}</p>}
+          {(current.due_at||current.due_date)&&<p className="due">{dueLabel(current.due_at,current.due_date)}</p>}
+          <Button variant="outline" disabled={busy||recording||starting} onClick={()=>void microphone(current.id)}><Mic/>Talk about this item</Button>
           {actionable(current)&&<Button onClick={()=>void changeStatus(current)}>{current.status==='completed'?'Reopen task':'Mark complete'}<Check/></Button>}
           {items.some(i=>i.parent_id===current.id)&&<div className="item-list">{items.filter(i=>i.parent_id===current.id).map(row)}</div>}
           {current.type==='task'&&!current.parent_id&&current.status==='active'&&<form onSubmit={e=>void addSubtask(e)} style={{display:'flex',gap:8}}><Input aria-label="New subtask" placeholder="Add a small step…" value={subTitle} maxLength={180} onChange={e=>setSubTitle(e.target.value)}/><Button type="submit" variant="outline" disabled={editBusy||!online||!subTitle.trim()}>Add</Button></form>}

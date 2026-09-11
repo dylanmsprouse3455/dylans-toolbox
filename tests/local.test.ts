@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import {IDBObjectStore} from 'fake-indexeddb';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {acceptCapture,allLocal,cachedItems,capturesFor,putLocal,type Capture} from '../lib/local.ts';
+import {acceptCapture,allLocal,cachedItems,cachedTurn,capturesFor,putLocal,type Capture,type TurnReceipt} from '../lib/local.ts';
 import type {Item} from '../lib/items.ts';
 const capture=(id:string,user_id='a'):Capture=>({id,user_id,text:'Remember a thought',captured_at:new Date().toISOString(),time_zone:'America/New_York'});
 const row=(capture_id:string,user_id='a'):Item=>({id:'item-'+capture_id,user_id,capture_id,type:'task',title:'Call tomorrow',content:'',area:'People',status:'active',importance:4,urgency:3,due_at:null,parent_id:null,source_text:'Remember a thought',created_at:new Date().toISOString(),updated_at:new Date().toISOString()});
@@ -69,4 +69,29 @@ test('A failed audio save keeps the original available for download and retry',a
   assert.ok(!(await capturesFor('a')).some(item=>item.id===c.id));
   await putLocal('captures',c);
   assert.equal(await (await capturesFor('a')).find(item=>item.id===c.id)!.audio!.text(),'original recording');
+});
+
+test('Task-edit receipts update the original item and preserve newer local versions on replay',async()=>{
+  const c=capture('edit-turn','edit-owner'),original=row('original-capture','edit-owner');
+  original.updated_at='2026-09-11T12:00:00Z';
+  await putLocal('cache',{id:c.user_id,items:[original]});await putLocal('captures',c);
+  const changed={...original,status:'completed' as const,updated_at:'2026-09-11T12:01:00Z'};
+  const turn:TurnReceipt={turn_id:c.id,items:[],updated_items:[changed],updated_ids:[changed.id],reply:'Marked it complete.',needs_clarification:false};
+  const merged=await acceptCapture(c,[],turn);
+  assert.equal(merged.length,1);assert.equal(merged[0].status,'completed');
+  assert.equal((await cachedTurn(c.user_id))?.reply,'Marked it complete.');
+  assert.equal((await capturesFor(c.user_id)).length,0);
+  await putLocal('cache',{id:c.user_id,items:[{...changed,status:'active',updated_at:'2026-09-11T12:02:00Z'}]});
+  assert.equal((await acceptCapture(c,[],turn))[0].status,'active','An old receipt cannot undo a newer edit');
+  await putLocal('captures',c);
+  await assert.rejects(acceptCapture(c,[],{...turn,updated_items:[{...changed,user_id:'other'}]}),/verified/);
+  assert.equal((await capturesFor(c.user_id)).length,1,'Unverified changes retain the raw message');
+});
+
+test('Clarification is durably saved before the raw recording leaves Pending',async()=>{
+  const c=capture('question-turn','question-owner');await putLocal('captures',c);
+  const turn:TurnReceipt={turn_id:c.id,items:[],updated_items:[],updated_ids:[],reply:'What time tomorrow?',needs_clarification:true};
+  await acceptCapture(c,[],turn);
+  assert.equal((await cachedTurn(c.user_id))?.needs_clarification,true);
+  assert.equal((await capturesFor(c.user_id)).length,0);
 });

@@ -1,6 +1,7 @@
 import {createClient} from '@supabase/supabase-js';
 import {captureInstructions,organizedCapture,outputSchema} from './capture-schema.ts';
 import {z} from 'zod';
+import {conversationContext,checkedChanges} from './conversation.ts';
 const metadata=z.object({id:z.string().uuid(),captured_at:z.string().datetime({offset:true}),time_zone:z.string().min(1).max(100)});
 export type CaptureConfig={SUPABASE_URL?:string;SUPABASE_ANON_KEY?:string;OPENAI_API_KEY?:string;OPENAI_MODEL?:string};
 export async function handleCapture(request:Request,c:CaptureConfig){
@@ -23,10 +24,13 @@ export async function handleCapture(request:Request,c:CaptureConfig){
     const parsed=metadata.safeParse({id:form.get('id'),captured_at:form.get('captured_at'),time_zone:form.get('time_zone')});
     if(!parsed.success)return json({error:'Capture details are invalid.'},400);
     const m=parsed.data;
+    const contextIds=z.object({focus_id:z.string().uuid().optional(),reply_to:z.string().uuid().optional()}).safeParse({focus_id:form.get('focus_id')||undefined,reply_to:form.get('reply_to')||undefined});
+    if(!contextIds.success)return json({error:'Conversation details are invalid.'},400);
     try{new Intl.DateTimeFormat('en-US',{timeZone:m.time_zone}).format();}catch{return json({error:'Time zone is invalid.'},400);}
-    const {data:existing,error:existingError}=await client.from('items').select('id,status,source_text').eq('id',m.id).eq('type','capture').maybeSingle();
+    const {data:existing,error:existingError}=await client.from('items').select('id,status,source_text,turn_result').eq('id',m.id).eq('type','capture').maybeSingle();
     if(existingError)throw new Error('STORE');
     if(existing?.status==='processed'){
+      if(existing.turn_result){const replay=await client.rpc('toolbox_apply_turn',{capture_uuid:m.id,source:'',entries:[],changes:[],reply:'',needs_clarification:false});if(replay.error)throw new Error('STORE');return json({...replay.data,already_saved:true});}
       const {data:items,error}=await client.from('items').select('*').eq('capture_id',m.id).neq('type','capture');
       if(error)throw new Error('STORE');
       return json({items,already_saved:true});
@@ -38,7 +42,7 @@ export async function handleCapture(request:Request,c:CaptureConfig){
     let text=typeof form.get('text')==='string'?String(form.get('text')).trim():'';
     const audio=form.get('audio');
     if(!existing){
-      const {error}=await client.from('items').insert({id:m.id,user_id:user.id,type:'capture',title:'Raw capture',content:'',source_text:text.slice(0,30000),area:'Inbox',status:'pending',importance:1,urgency:1});
+      const {error}=await client.from('items').insert({id:m.id,user_id:user.id,type:'capture',title:'Raw capture',content:JSON.stringify(contextIds.data),source_text:text.slice(0,30000),area:'Inbox',status:'pending',importance:1,urgency:1});
       if(error&&error.code!=='23505')throw new Error('STORE');
     }
     if(audio instanceof File&&existing?.source_text)text=existing.source_text;
@@ -59,25 +63,27 @@ export async function handleCapture(request:Request,c:CaptureConfig){
     if(text.length>30000)return json({error:'Please keep each capture under 30,000 characters.'},413);
     const {error:transcriptError}=await client.from('items').update({source_text:text}).eq('id',m.id).eq('status','pending');
     if(transcriptError)throw new Error('STORE');
+    const context=await conversationContext(client,text,contextIds.data.focus_id,contextIds.data.reply_to);
     const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:'Bearer '+c.OPENAI_API_KEY,'Content-Type':'application/json'},
       body:JSON.stringify({model:c.OPENAI_MODEL||'gpt-4.1-mini',store:false,instructions:captureInstructions(m.captured_at,m.time_zone),
-        input:text,text:{format:{type:'json_schema',name:'organized_capture',strict:true,schema:outputSchema}},max_output_tokens:10000}),
+        input:JSON.stringify(context.input),text:{format:{type:'json_schema',name:'organized_capture',strict:true,schema:outputSchema}},max_output_tokens:10000}),
       signal:AbortSignal.timeout(60000)});
     if(!response.ok)throw new Error(response.status===429?'AI_LIMIT':'ORGANIZE');
     const result=await response.json() as {status?:string;output?:{content?:{type:string;text?:string}[]}[]};
     if(result.status!=='completed')throw new Error('ORGANIZE');
     const output=result.output?.flatMap(o=>o.content??[]).filter(o=>o.type==='output_text').map(o=>o.text??'').join('');
     const organized=organizedCapture.parse(JSON.parse(output||'{}'));
+    const changes=checkedChanges(organized,context.candidates);
     const rows:Record<string,unknown>[]=[];
     for(const item of organized.items){
       const id=crypto.randomUUID(),{subtasks,...rest}=item;
       const factual=rest.type==='note'||rest.type==='reference';
-      rows.push({...rest,...(factual?{importance:1,urgency:1,due_at:null}:{}),id,parent_id:null});
+      rows.push({...rest,...(factual?{importance:1,urgency:1,due_at:null,due_date:null}:{}),id,parent_id:null});
       if(item.type==='task')for(const sub of subtasks)rows.push({...sub,id:crypto.randomUUID(),parent_id:id});
     }
-    const {data:items,error}=await client.rpc('toolbox_save_capture',{capture_uuid:m.id,source:text,entries:rows});
-    if(error)throw new Error('STORE');
-    return json({items:items??[]});
+    const {data:resultTurn,error}=await client.rpc('toolbox_apply_turn',{capture_uuid:m.id,source:text,entries:rows,changes,reply:organized.reply,needs_clarification:organized.needs_clarification});
+    if(error){if(error.message.includes('ITEM_CHANGED'))return json({error:'A task changed while I was working. Your message is saved; retry to use its latest version.'},409);throw new Error('STORE');}
+    return json(resultTurn);
   }catch(error){
     const code=error instanceof Error?error.message:'UNKNOWN';
     if(code==='AUTH')return json({error:'Please sign in again. Your pending capture is safe on this device.'},401);

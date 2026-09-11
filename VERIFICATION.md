@@ -1,5 +1,12 @@
 # Dylan’s Toolbox — deployment handoff
 
+## Conversational task updates
+- Eighteen automated tests pass, including atomic task editing/completion, stale-version rollback, owner-only enforcement, idempotent retry, day-only dates, and durable local assistant replies.
+- Isolated browser testing with controlled responses exercised: create a catnip task for tomorrow without a time; ask "adjust that time"; receive a clarification; answer "3 p.m."; update the same task; simulate a voice completion and remove it from Today.
+- The live additive SQL update and capture function were deployed through the Supabase dashboard. A rolled-back production database check verified create, day-only storage, time correction, completion, retry, and denied anonymous execution without retaining test items.
+- Actual OpenAI interpretation and physical iPhone recording for this new conversational flow still require an end-to-end user check. The browser scenario used simulated AI responses/audio.
+- Owner-only signup/access restrictions and the recording download/retry fix remain in place. The older baseline verification below describes earlier deployment stages.
+
 Live app: https://dylanmsprouse3455.github.io/dylans-toolbox/
 Repository: https://github.com/dylanmsprouse3455/dylans-toolbox
 Published app revision: 2a458733228f1311a89569fd8963456599264762

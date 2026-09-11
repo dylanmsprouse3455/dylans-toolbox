@@ -27,11 +27,12 @@ test('Text and audio processing, AI failure, transcript recovery, and idempotent
       return Response.json({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify({items:[{type:'note',title:'Door code',content:'42',area:'Home',importance:5,urgency:5,due_at:'2026-09-11T09:00:00-04:00',subtasks:[]},{type:'task',title:'Call Sam',content:'',area:'People',importance:4,urgency:4,due_at:'2026-09-11T09:00:00-04:00',subtasks:[]}]})}]}]});
     }
     assert.equal(req.headers.get('authorization'),'Bearer test-user-token','All database calls use the caller token, never an admin key');
-    if(url.pathname.endsWith('/rpc/toolbox_save_capture')){const body=await req.json() as {entries:object[]};saved=true;savedRows=body.entries.map((e:object)=>({...e,user_id:owner,capture_id:id}));return Response.json(savedRows);}
+    if(url.pathname.endsWith('/rpc/toolbox_apply_turn')){const body=await req.json() as {entries:object[]};saved=true;savedRows=body.entries.map((e:object)=>({...e,user_id:owner,capture_id:id}));return Response.json({turn_id:id,items:savedRows,updated_items:[],updated_ids:[],reply:'Saved.',needs_clarification:false});}
     if(req.method==='HEAD')return new Response(null,{headers:{'content-range':'0-0/1'}});
     if(req.method==='PATCH'){source=(await req.json() as {source_text:string}).source_text;return new Response(null,{status:204});}
     if(req.method==='POST')return new Response(null,{status:201});
     if(url.searchParams.has('capture_id'))return Response.json(savedRows);
+    if(!url.searchParams.has('id'))return Response.json([]);
     return Response.json(saved?[{id,status:'processed',source_text:source}]:mode==='retry'?[{id,status:'pending',source_text:source}]:[]);
   };
   try{
