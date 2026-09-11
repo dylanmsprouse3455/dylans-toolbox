@@ -12,6 +12,13 @@ function managedWorkRow(item:unknown){
   return row.area==='Work'&&typeof row.content==='string'&&isManagedWorkContent(row.content);
 }
 
+function workWizardReceiptRow(item:unknown){
+  if(!item||typeof item!=='object')return false;
+  const row=item as {area?:unknown;type?:unknown;content?:unknown};
+  if(row.area!=='Work'||row.type!=='capture'||typeof row.content!=='string')return false;
+  try{return JSON.parse(row.content)?.workspace==='work-wizard';}catch{return false;}
+}
+
 function sanitizePersonalCache(){
   if(typeof indexedDB==='undefined')return;
   try{
@@ -48,7 +55,7 @@ async function scopedFetch(input:RequestInfo|URL,init?:RequestInit){
   try{
     const data=await response.clone().json();
     if(!Array.isArray(data))return response;
-    const filtered=data.filter((item:unknown)=>workspace==='work'?managedWorkRow(item):!managedWorkRow(item));
+    const filtered=data.filter((item:unknown)=>workspace==='work'?(managedWorkRow(item)||workWizardReceiptRow(item)):!managedWorkRow(item));
     if(filtered.length===data.length)return response;
     const headers=new Headers(response.headers);headers.delete('content-length');
     return new Response(JSON.stringify(filtered),{status:response.status,statusText:response.statusText,headers});
