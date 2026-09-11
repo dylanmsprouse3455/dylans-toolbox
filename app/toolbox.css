@@ -33,6 +33,12 @@ p { margin:0; }
 .assistant-bubble strong { display:block; font-size:.78rem; letter-spacing:.04em; margin-bottom:3px; }
 .assistant-bubble p { font-size:.92rem; line-height:1.42; max-height:8.6em; overflow:auto; }
 .assistant-bubble.question { background:#7b4a11; }
+.live-review { margin-top:18px; padding:18px; background:#fff; border:1px solid var(--border); border-radius:18px; }
+.live-review .section-heading { margin-bottom:10px; }
+.live-review .section-heading h2 { font-size:1rem; }
+.live-thought { padding:10px 12px; margin-top:8px; background:#f3f6fb; border-left:3px solid #2458d3; border-radius:4px 11px 11px 4px; font-size:.94rem; }
+.live-thought.interim { color:#657189; border-left-color:#9db6e9; }
+.live-hint { margin-top:12px; color:#637189; font-size:.84rem; }
 .attention { padding-top:31px; }
 .section-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
 .section-heading .muted { font-size:.875rem; }
