@@ -1,0 +1,40 @@
+name: Fix Compact Capture CSS
+on:
+  push:
+    branches: [work-compact-capture]
+permissions:
+  contents: write
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Normalize compact capture CSS newlines
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('app/work-toolbox.css')
+          s=p.read_text()
+          marker='/* compact-capture-placement */'
+          if marker in s:
+              before, after=s.split(marker,1)
+              fixed=before+marker+after.replace('\\n','\n')
+              if fixed!=s:
+                  p.write_text(fixed)
+          PY
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add app/work-toolbox.css
+            git commit -m "Fix compact capture CSS newlines"
+            git push
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+        env:
+          TOOLBOX_BASE_PATH: /dylans-toolbox/
