@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {validateWorkPreview} from '../lib/work-memory.ts';
+import {groupCaseHistory,validateWorkPreview} from '../lib/work-memory.ts';
+import {workPreviewInstructions} from '../lib/work-preview-schema.ts';
 import type {WorkCase} from '../lib/work-types.ts';
 
 const existing:WorkCase={
@@ -36,4 +37,23 @@ test('rejects duplicate creation when the case number already exists',()=>{
 test('accepts read-only Work answers with no proposed changes',()=>{
   const result=validateWorkPreview({kind:'answer',headline:'Briefing',answer:'G26-0441 is waiting on Mike.',commit_reply:'',proposals:[]},new Map([[existing.id,existing]]));
   assert.equal(result.kind,'answer');
+});
+
+test('groups timeline history by file and keeps newest entries first',()=>{
+  const events=[
+    {id:'a',case_id:'one',kind:'completion',summary:'Closed.',source_text:'done',occurred_at:'2026-09-11T12:00:00Z'},
+    {id:'b',case_id:'two',kind:'note',summary:'Other file.',source_text:'other',occurred_at:'2026-09-11T11:00:00Z'},
+    {id:'c',case_id:'one',kind:'request',summary:'Requested documents.',source_text:'asked for docs',occurred_at:'2026-09-11T10:00:00Z'},
+  ];
+  const grouped=groupCaseHistory(events,10);
+  assert.deepEqual(grouped.get('one')?.map(event=>event.id),['a','c']);
+  assert.equal(grouped.get('two')?.[0].summary,'Other file.');
+});
+
+test('instructions treat reopened completed files as the same case with history',()=>{
+  const instructions=workPreviewInstructions('2026-09-11T16:00:00-04:00','America/New_York');
+  assert.match(instructions,/A completed file is NOT a blank slate/);
+  assert.match(instructions,/continue the same case_id/);
+  assert.match(instructions,/different situation/);
+  assert.match(instructions,/history array for that exact file/);
 });
