@@ -1,2 +1,2 @@
-import Toolbox from './toolbox';
-export default function Home() { return <Toolbox />; }
+import WorkspaceGate from './workspace-gate';
+export default function Home() { return <WorkspaceGate />; }
