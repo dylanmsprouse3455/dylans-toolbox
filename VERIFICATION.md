@@ -1,8 +1,45 @@
-# Verification status
+# Dylan’s Toolbox — deployment handoff
 
-- Production static build and TypeScript: passed.
-- Nine automated tests: passed, including an actual PostgreSQL engine for schema/RLS checks.
-- Verified anonymous rejection, CORS, text/audio processing with controlled provider responses, saved transcript reuse, AI failure and idempotent retry, cache transaction abort recovery, owner-specific caches, completion and editing in PostgreSQL, and Home filtering/ranking.
-- Orbit public auth endpoint responds successfully; email signup and email confirmation are enabled.
-- Orbit browser dashboard reports Healthy and no security advisor findings.
-- Live deployment and browser checks: in progress. Physical iPhone Safari recording and installation require device verification.
+Live app: https://dylanmsprouse3455.github.io/dylans-toolbox/
+Repository: https://github.com/dylanmsprouse3455/dylans-toolbox
+Published app revision: 2a458733228f1311a89569fd8963456599264762
+Successful deployment: https://github.com/dylanmsprouse3455/dylans-toolbox/actions/runs/34547695254
+
+## Completed
+- Published non-sensitive source to the approved public repository, preserving its initial commit.
+- Deployed Orbit capture Edge Function at https://uouzmmexjundpfitogky.supabase.co/functions/v1/capture.
+- Verified OPENAI_API_KEY exists in Orbit Edge Function Secrets; never retrieved, changed, or exposed its value.
+- Function validates user tokens through Supabase Auth and uses the caller's token for database/RLS operations. No service-role key.
+- Frontend calls Orbit directly. No Windows computer or local server is required.
+- Fixed capture loss risk: cache the returned items and remove the raw pending capture in one IndexedDB transaction.
+- Added owner/receipt response validation, owner filters during refresh, stale-refresh protection, and account-state cleanup.
+- Retry reuses saved transcripts; processed receipt recovery works even without an available AI key.
+- Corrected iPhone/audio filename handling; provider calls have bounded timeouts.
+- Added versioned precaching of the complete static app shell and path-aware manifest, service worker, and auth redirects.
+- Orbit Auth Site URL and its exact allowlisted redirect both point to the live Pages URL.
+
+## Verified successfully
+- Nine automated tests passed locally and in GitHub Actions.
+- TypeScript and production build passed on GitHub's clean Linux runner.
+- Actual PostgreSQL engine (PGlite) executed the schema and verified owner isolation, denied ownership reassignment, denied cross-owner references, anonymous denial, atomic duplicate prevention, editing, and parent/subtask completion.
+- Controlled-provider capture tests cover auth rejection, CORS, text and audio flow, AI failure, transcript reuse, and already-saved retries.
+- IndexedDB tests cover owner isolation, duplicate merging, wrong-owner/wrong-receipt rejection, transaction abort preserving audio, and queued completion overlays.
+- Home tests cover five-item maximum, priority ordering, and exclusion of notes/references/backlog/completed/child items.
+- Live Edge Function: OPTIONS 204 with CORS; unauthenticated POST 401.
+- Live frontend: HTTP 200, rendered in browser, navigation and sign-in form checked, reload checked, 390 x 844 mobile layout inspected without horizontal overflow.
+- Live versioned service worker and scoped PWA manifest both return HTTP 200.
+- Orbit dashboard showed Healthy and no security advisor findings.
+- Source scan found no private API keys, GitHub tokens, or private key material.
+
+## Still unverified
+- Successful live app sign-in/email confirmation and signed-in OpenAI text/voice capture.
+- Real OpenAI key validity/billing: presence of the secret is confirmed, but a live signed-in request was not made.
+- Live two-account RLS tests; the checked-in schema was tested in PostgreSQL, not by inspecting private production user data.
+- Actual browser offline/network-loss recovery, installed PWA behavior, and physical iPhone Safari microphone/keyboard/safe-area behavior. Automated queue/receipt tests and mobile layout checks passed, but do not substitute for these device/end-to-end tests.
+
+## Access and next steps
+Supabase connector calls deny project permission, but Supabase browser access works via the existing GitHub sign-in. The Edge Function was deployed through the dashboard editor using the same processing/validation logic as the checked-in source. Its source is supabase/functions/capture/index.ts and lib/capture-handler.ts; no database migration was needed.
+
+Automatic approval review blocked opening the private Auth users list, citing account-email exposure. Do not retry that user-list access without approval. This does not prevent the user from signing in to the app and testing capture.
+
+The user can open the live app, sign in/create an account, and try a thought now. The user requested frequent updates, then asked to hurry/wrap up for a lower-tier agent. No separate task was created.
