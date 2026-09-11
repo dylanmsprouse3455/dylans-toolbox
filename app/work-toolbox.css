@@ -24,3 +24,24 @@
 .work-history-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
 .work-capture-history form { display:grid; gap:8px; margin-top:12px; }
 @media(max-width:700px) { .work-header-actions { flex-direction:column; align-items:flex-end; } .work-header-actions>button { font-size:0.875rem; } }
+
+
+/* compact confirmation-first Work wizard */
+.work-wizard-overlay{overflow:hidden;align-items:center}
+.work-wizard{max-height:calc(100dvh - max(24px,env(safe-area-inset-top)) - max(24px,env(safe-area-inset-bottom)));overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y;scrollbar-gutter:stable}
+.work-wizard.compact{max-width:560px}
+.work-wizard-question-primary{margin:20px 0 0;padding:22px 20px;border:1px solid #d7e8fb;background:linear-gradient(180deg,#f5faff 0%,#edf6ff 100%);color:#173f6b;box-shadow:0 10px 28px #245d9b0d}
+.work-wizard-question-primary strong{display:block;font-size:1.08rem;line-height:1.5;letter-spacing:-.01em}
+.work-wizard-question-label{display:block;margin-bottom:7px;font-size:.72rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#5d7fa6}
+.work-wizard-details-toggle{width:100%;margin-top:10px;border:0;background:transparent;color:#315f90;display:flex;align-items:center;justify-content:center;gap:7px;padding:10px;border-radius:12px;font-size:.84rem;font-weight:750}
+.work-wizard-details-toggle:active{background:#f1f6fc}
+.work-wizard-details-toggle svg{width:17px;height:17px}
+.work-wizard-expanded{margin-top:2px}
+.work-wizard.compact .work-wizard-actions{margin-top:12px}
+@media(max-width:520px){
+  .work-wizard-overlay{align-items:flex-end;padding-top:max(8px,env(safe-area-inset-top));padding-bottom:max(8px,env(safe-area-inset-bottom))}
+  .work-wizard{width:100%;max-height:calc(100dvh - max(8px,env(safe-area-inset-top)) - max(8px,env(safe-area-inset-bottom)));overflow-y:auto;-webkit-overflow-scrolling:touch;touch-action:pan-y}
+  .work-wizard.compact{padding:18px 15px calc(18px + env(safe-area-inset-bottom));}
+  .work-wizard-question-primary{padding:19px 17px}
+  .work-wizard-question-primary strong{font-size:1.04rem}
+}
