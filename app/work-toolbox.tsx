@@ -187,7 +187,7 @@ export default function WorkToolbox(){
     await commitWizard();
   }
 
-  async function microphone(){
+  async function microphone(focusOverride?:string|null){
     if(recording){if(recognition.current)recognition.current.stop();else recorder.current?.stop();return;}
     if(!sessionRef.current){setError('Sign in before using Work voice capture.');return;}
     stopSpeaking();setStarting(true);setError('');setReply('');
@@ -204,7 +204,7 @@ export default function WorkToolbox(){
       live.onend=()=>{
         recognition.current=null;if(recTimer.current)clearInterval(recTimer.current);setRecording(false);
         const complete=normalizeWorkCaseNumbers(appendSpeech(liveRef.current,interimRef.current));setLiveTranscript(complete);setInterim('');interimRef.current='';
-        if(complete)void sendPreview(complete);else setError('I didn’t catch any words. Try again.');
+        if(complete)void sendPreview(complete,undefined,focusOverride);else setError('I didn’t catch any words. Try again.');
       };
       try{live.start();setRecording(true);let elapsed=0;recTimer.current=setInterval(()=>{elapsed++;setSeconds(elapsed);if(elapsed>=300)live.stop();},1000);}catch{recognition.current=null;setError('The microphone could not start. Check Safari’s microphone permission.');}
       finally{setStarting(false);}return;
@@ -216,14 +216,14 @@ export default function WorkToolbox(){
       const mime=['audio/mp4','audio/webm;codecs=opus','audio/webm'].find(type=>MediaRecorder.isTypeSupported(type));
       const rec=new MediaRecorder(stream,mime?{mimeType:mime}:undefined),chunks:Blob[]=[];recorder.current=rec;setSeconds(0);
       rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};
-      rec.onstop=()=>{if(recTimer.current)clearInterval(recTimer.current);stream?.getTracks().forEach(track=>track.stop());setRecording(false);const audio=new Blob(chunks,{type:rec.mimeType||mime||'audio/mp4'});if(audio.size)void sendPreview(undefined,audio);else setError('No audio was recorded.');};
+      rec.onstop=()=>{if(recTimer.current)clearInterval(recTimer.current);stream?.getTracks().forEach(track=>track.stop());setRecording(false);const audio=new Blob(chunks,{type:rec.mimeType||mime||'audio/mp4'});if(audio.size)void sendPreview(undefined,audio,focusOverride);else setError('No audio was recorded.');};
       rec.start(1000);setRecording(true);let elapsed=0;recTimer.current=setInterval(()=>{elapsed++;setSeconds(elapsed);if(elapsed>=300&&rec.state==='recording')rec.stop();},1000);
     }catch(e){stream?.getTracks().forEach(track=>track.stop());setError(e instanceof DOMException&&e.name==='NotAllowedError'?'Microphone access is off. Allow it in Safari’s website settings.':errorText(e));}
     finally{setStarting(false);}
   }
 
   function openCase(item:WorkCase){setSelectedId(item.id);setFocusCaseId(item.id);}
-  function talkAbout(item:WorkCase){setFocusCaseId(item.id);setSelectedId(null);setCaptureMode('talk');}
+  function talkAbout(item:WorkCase){setFocusCaseId(item.id);setSelectedId(null);setCaptureMode('talk');void microphone(item.id);}
 
   const active=cases.filter(item=>item.status==='active'),completed=cases.filter(item=>item.status==='completed');
   const sectionOptions=[
@@ -258,7 +258,7 @@ export default function WorkToolbox(){
     </section>
 
     <div className="work-capture-launcher" aria-label="Add a Work update">
-      <button type="button" className="talk" onClick={()=>setCaptureMode('talk')}><Mic/><span>Talk</span></button>
+      <button type="button" className="talk" onClick={()=>{setCaptureMode('talk');void microphone();}}><Mic/><span>Talk</span></button>
       <button type="button" className="type" onClick={()=>setCaptureMode('type')}><PenLine/><span>Type</span></button>
     </div>
 
@@ -268,11 +268,11 @@ export default function WorkToolbox(){
 
     {captureMode&&<div className="work-capture-sheet-overlay" role="dialog" aria-modal="true" aria-label={captureMode==='talk'?'Record a Work update':'Type a Work update'}>
       <section className="work-capture-sheet" ref={captureRef}>
-        <div className="work-capture-sheet-top"><div><p className="work-step">Update Work</p><h2>{captureMode==='talk'?(recording?'I’m listening.':'Talk to Orbit'):'Type to Orbit'}</h2><p>{focusCaseId?'Current file: '+(cases.find(item=>item.id===focusCaseId)?.case_number||cases.find(item=>item.id===focusCaseId)?.title||'selected file')+'. ':''}Nothing changes until you confirm the wizard.</p></div><Button size="icon" variant="ghost" aria-label="Close update" disabled={recording||busy} onClick={()=>setCaptureMode(null)}><X/></Button></div>
+        <div className="work-capture-sheet-top"><div><p className="work-step">Update Work</p><h2>{captureMode==='talk'?(starting?'Starting microphone…':recording?'I’m listening.':'Talk to Orbit'):'Type to Orbit'}</h2><p>{focusCaseId?'Current file: '+(cases.find(item=>item.id===focusCaseId)?.case_number||cases.find(item=>item.id===focusCaseId)?.title||'selected file')+'. ':''}Nothing changes until you confirm the wizard.</p></div><Button size="icon" variant="ghost" aria-label="Close update" disabled={starting||recording||busy} onClick={()=>setCaptureMode(null)}><X/></Button></div>
         {focusCaseId&&<button type="button" className="work-focus-clear" onClick={()=>setFocusCaseId(null)}>Clear file context</button>}
         {captureMode==='talk'?<>
           <Button className={'work-mic '+(recording?'recording':'')} onClick={()=>void microphone()} disabled={starting||busy&&!recording}>{starting||busy&&!recording?<LoaderCircle className="spinning"/>:recording?<Square fill="currentColor"/>:<Mic/>}</Button>
-          <p className="work-mic-label">{recording?Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0')+' · Tap when done':busy?'Building your review…':'Tap to record'}</p>
+          <p className="work-mic-label">{starting?'Starting…':recording?Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0')+' · Tap when done':busy?'Building your review…':'Tap to try again'}</p>
           {recording&&(liveTranscript||interim)&&<div className="work-live">{normalizeWorkCaseNumbers(liveTranscript)}{interim&&<span> {interim}</span>}</div>}
           {pendingAudio&&!busy&&<Button variant="outline" onClick={()=>void sendPreview(undefined,pendingAudio)}>Retry saved recording</Button>}
         </>:<>
@@ -282,7 +282,7 @@ export default function WorkToolbox(){
       </section>
     </div>}
 
-    {success&&<div className="work-overlay work-success-overlay" role="dialog" aria-modal="true" aria-label="Work update saved"><section className="work-success-card"><span className="work-success-check"><Check/></span><h2>All Set!</h2><p>{success.reply||'Your update has been saved. Orbit is keeping track of it.'}</p><Button onClick={()=>{setSuccess(null);setCaptureMode('talk');}}>Add Another Update</Button>{success.caseId&&<Button variant="outline" onClick={()=>{setSuccess(null);setSelectedId(success.caseId);setFocusCaseId(success.caseId);}}>View File</Button>}</section></div>}
+    {success&&<div className="work-overlay work-success-overlay" role="dialog" aria-modal="true" aria-label="Work update saved"><section className="work-success-card"><span className="work-success-check"><Check/></span><h2>All Set!</h2><p>{success.reply||'Your update has been saved. Orbit is keeping track of it.'}</p><Button onClick={()=>{setSuccess(null);setCaptureMode('talk');void microphone(success.caseId);}}>Add Another Update</Button>{success.caseId&&<Button variant="outline" onClick={()=>{setSuccess(null);setSelectedId(success.caseId);setFocusCaseId(success.caseId);}}>View File</Button>}</section></div>}
 
     {wizard&&currentProposal&&<div className="work-overlay" role="dialog" aria-modal="true" aria-label="Confirm Work update"><section className="work-wizard"><div className="work-wizard-top"><div><p className="work-step">Check {wizardIndex+1} of {wizard.preview.proposals.length}</p><h2>{wizard.preview.headline||'Check what Orbit understood'}</h2></div><Button size="icon" variant="ghost" aria-label="Cancel draft" onClick={()=>void discardWizard()} disabled={busy}><X/></Button></div><div className="work-wizard-file"><span className="work-case-badge">{currentProposal.case_number||'Work item'}</span><h3>{currentProposal.title}</h3><div className="work-wizard-chips"><span>{stateLabel[currentProposal.workflow_state]}</span><span>{ballLabel(currentProposal.ball_owner,currentProposal.ball_with)}</span>{currentProposal.status==='completed'&&<span>Completed</span>}</div></div><dl className="work-wizard-details"><div><dt>Current situation</dt><dd>{currentProposal.current_situation||'—'}</dd></div><div><dt>Next action</dt><dd>{currentProposal.next_action||'Nothing specific yet'}</dd></div><div><dt>When to care again</dt><dd>{dueLabel(currentProposal.follow_up_at,currentProposal.follow_up_date)||'No follow-up set'}</dd></div>{currentProposal.closing_date&&<div><dt>Closing</dt><dd>{dateLabel(currentProposal.closing_date)}</dd></div>}<div><dt>Timeline entry</dt><dd>{currentProposal.event_summary}</dd></div></dl><div className="work-wizard-question"><strong>{currentProposal.confirmation_question}</strong></div>{!correcting?<div className="work-wizard-actions"><Button className="work-confirm-yes" onClick={()=>void confirmWizardStep()} disabled={busy}>{busy?<LoaderCircle className="spinning"/>:<><Check/>Yes, that’s right</>}</Button><Button variant="outline" onClick={()=>setCorrecting(true)} disabled={busy}><X/>No, change it</Button></div>:<div className="work-correction"><label>What did Orbit get wrong, or what should be different?<Textarea autoFocus value={correction} onChange={e=>setCorrection(e.target.value)} placeholder="Example: I’m waiting on Sarah, not Mike, and I don’t need to follow up until Tuesday." maxLength={5000}/></label><div className="work-wizard-actions"><Button onClick={()=>void reviseWizard()} disabled={busy||!correction.trim()}>{busy?<LoaderCircle className="spinning"/>:<><Send/>Fix the draft</>}</Button><Button variant="outline" onClick={()=>{setCorrecting(false);setCorrection('');}} disabled={busy}>Back</Button></div></div>}<p className="work-wizard-note">No Work file changes are saved until every check is confirmed.</p></section></div>}
 
