@@ -3,22 +3,30 @@ import {z} from 'zod';
 import {normalizeWorkCaseNumbers} from './work-context.ts';
 import {workMemoryContext,validateWorkPreview} from './work-memory.ts';
 import {workPreviewInstructions,workPreviewOutputSchema} from './work-preview-schema.ts';
-import type {WorkPreview} from './work-types.ts';
+import type {WorkPreview,WorkRuleSuggestion} from './work-types.ts';
 
 export type WorkCaptureConfig={SUPABASE_URL?:string;SUPABASE_ANON_KEY?:string;OPENAI_API_KEY?:string;OPENAI_MODEL?:string};
 const previewMeta=z.object({id:z.string().uuid(),captured_at:z.string().datetime({offset:true}),time_zone:z.string().min(1).max(100),focus_case_id:z.string().uuid().optional()});
 const draftMeta=z.object({id:z.string().uuid()});
 const correctionSchema=z.string().trim().min(1).max(5000);
+const ruleApprovalMeta=z.object({id:z.string().uuid(),rule_key:z.string().min(1).max(120),rule_text:z.string().min(1).max(2000)});
 
 type Receipt={id:string;status:string;source_text:string;content:string;turn_result:unknown};
 
 function errorCode(error:unknown){return error instanceof Error?error.message:'UNKNOWN';}
 function captureDetails(receipt:Receipt){try{return JSON.parse(receipt.content) as {captured_at?:string;time_zone?:string;focus_case_id?:string};}catch{return {};}}
 
+async function approvedRules(client:SupabaseClient){
+  const result=await client.from('work_rules').select('rule_key,rule_text').eq('enabled',true).order('updated_at',{ascending:false}).limit(100);
+  if(result.error)throw new Error('STORE');
+  return (result.data??[]).map(row=>`${row.rule_key}: ${row.rule_text}`);
+}
+
 async function askOpenAI(c:WorkCaptureConfig,client:SupabaseClient,text:string,capturedAt:string,timeZone:string,focusCaseId?:string,previous?:WorkPreview,correction?:string){
-  const context=await workMemoryContext(client,text,focusCaseId);
+  const [context,rules]=await Promise.all([workMemoryContext(client,text,focusCaseId),approvedRules(client)]);
   const revision=previous?[
-    'REVISION MODE: Dylan rejected part of the prior draft. Revise the draft using his correction. Preserve unrelated proposals unless the correction changes them.',
+    'REVISION MODE: Dylan rejected part of the prior draft. Revise using his correction. Preserve unrelated proposals unless the correction changes them.',
+    'If the correction reveals a reusable work-language rule, add at most one concise rule_suggestion. Do NOT add a suggestion for a one-off factual correction such as a name, address, date, or case number.',
     'Previous draft: '+JSON.stringify(previous),
     'Dylan correction: '+correction,
   ].join('\n'):'';
@@ -26,10 +34,10 @@ async function askOpenAI(c:WorkCaptureConfig,client:SupabaseClient,text:string,c
     method:'POST',headers:{Authorization:'Bearer '+c.OPENAI_API_KEY,'Content-Type':'application/json'},
     body:JSON.stringify({
       model:c.OPENAI_MODEL||'gpt-4.1-mini',store:false,
-      instructions:workPreviewInstructions(capturedAt,timeZone)+(revision?'\n'+revision:''),
+      instructions:workPreviewInstructions(capturedAt,timeZone,rules)+(revision?'\n'+revision:''),
       input:JSON.stringify(context.input),
       text:{format:{type:'json_schema',name:'work_confirmation_preview',strict:true,schema:workPreviewOutputSchema}},
-      max_output_tokens:12000,
+      max_output_tokens:14000,
     }),
     signal:AbortSignal.timeout(65000),
   });
@@ -51,6 +59,11 @@ async function transcribe(c:WorkCaptureConfig,audio:File){
   const result=await response.json() as {text?:string};return result.text?.trim()??'';
 }
 
+function previewSuggestions(receipt:Receipt){
+  const stored=receipt.turn_result as {kind?:string;preview?:WorkPreview}|null;
+  return stored?.kind==='work_preview'?(stored.preview?.rule_suggestions??[]):[];
+}
+
 export async function handleWorkCapture(request:Request,c:WorkCaptureConfig){
   const headers={'Cache-Control':'no-store','Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'authorization, apikey, content-type, x-client-info','Access-Control-Allow-Methods':'POST, OPTIONS'};
   const json=(data:unknown,status=200)=>Response.json(data,{status,headers});
@@ -63,10 +76,23 @@ export async function handleWorkCapture(request:Request,c:WorkCaptureConfig){
     const {data:auth,error:authError}=await client.auth.getUser(authorization.slice(7));if(authError||!auth.user)throw new Error('AUTH');
     const {data:allowed,error:accessError}=await client.rpc('toolbox_can_access');if(accessError||allowed!==true)return json({error:'This private toolbox is restricted to its owner.'},403);
     if(Number(request.headers.get('content-length')??0)>22000000)return json({error:'Recording is too large. Keep Work recordings under five minutes.'},413);
-    if(!c.OPENAI_API_KEY)return json({error:'AI capture is not configured.'},503);
 
     const form=await request.formData();
     const mode=String(form.get('mode')||'preview');
+
+    if(mode==='approve_rule'){
+      const parsed=ruleApprovalMeta.safeParse({id:form.get('id'),rule_key:form.get('rule_key'),rule_text:form.get('rule_text')});
+      if(!parsed.success)return json({error:'That rule suggestion is invalid.'},400);
+      const {data:receipt,error}=await client.from('items').select('id,status,source_text,content,turn_result').eq('id',parsed.data.id).eq('type','capture').eq('area','Work').maybeSingle();
+      if(error)throw new Error('STORE');if(!receipt)return json({error:'That Work draft could not be found.'},404);
+      const suggestion=previewSuggestions(receipt as Receipt).find((row:WorkRuleSuggestion)=>row.rule_key===parsed.data.rule_key&&row.rule_text===parsed.data.rule_text);
+      if(!suggestion)return json({error:'That rule is no longer part of this draft.'},409);
+      const saved=await client.from('work_rules').upsert({user_id:auth.user.id,rule_key:suggestion.rule_key,rule_text:suggestion.rule_text,enabled:true,source_capture_id:receipt.id},{onConflict:'user_id,rule_key'}).select('id,rule_key,rule_text,enabled').single();
+      if(saved.error)throw new Error('STORE');
+      return json({approved_rule:saved.data});
+    }
+
+    if(!c.OPENAI_API_KEY)return json({error:'AI capture is not configured.'},503);
 
     if(mode==='commit'||mode==='discard'||mode==='revise'){
       const parsed=draftMeta.safeParse({id:form.get('id')});if(!parsed.success)return json({error:'That Work draft is invalid.'},400);
@@ -104,7 +130,7 @@ export async function handleWorkCapture(request:Request,c:WorkCaptureConfig){
       const revised=await askOpenAI(c,client,combined,details.captured_at||new Date().toISOString(),details.time_zone||'America/New_York',details.focus_case_id,stored.preview,correction.data);
       const revision=(stored.revision??1)+1;
       if(revised.kind==='answer'){
-        const result={kind:'work_answer',turn_id:row.id,answer:revised.answer,reply:revised.answer};
+        const result={kind:'work_answer',turn_id:row.id,answer:revised.answer,answer_status:revised.answer_status,reply:revised.answer};
         const saved=await client.from('items').update({source_text:combined,status:'processed',turn_result:result}).eq('id',row.id).eq('status','pending');if(saved.error)throw new Error('STORE');
         return json(result);
       }
@@ -140,7 +166,7 @@ export async function handleWorkCapture(request:Request,c:WorkCaptureConfig){
 
     const preview=await askOpenAI(c,client,text,meta.captured_at,meta.time_zone,meta.focus_case_id);
     if(preview.kind==='answer'){
-      const result={kind:'work_answer',turn_id:meta.id,answer:preview.answer,reply:preview.answer};
+      const result={kind:'work_answer',turn_id:meta.id,answer:preview.answer,answer_status:preview.answer_status,reply:preview.answer};
       const saved=await client.from('items').update({status:'processed',turn_result:result}).eq('id',meta.id).eq('status','pending');if(saved.error)throw new Error('STORE');
       return json(result);
     }
