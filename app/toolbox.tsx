@@ -23,6 +23,7 @@ export default function Toolbox(){
   const [online,setOnline]=useState(true),[busy,setBusy]=useState(false),[loading,setLoading]=useState(false);
   const [error,setError]=useState(''),[feedback,setFeedback]=useState('');
   const [pending,setPending]=useState<Capture[]>([]),[pendingChanges,setPendingChanges]=useState(0);
+  const [unsaved,setUnsaved]=useState<Capture[]>([]);
   const [sheet,setSheet]=useState<'write'|'account'|'pending'|null>(null);
   const [draft,setDraft]=useState(''),[selected,setSelected]=useState<string|null>(null);
   const [recording,setRecording]=useState(false),[seconds,setSeconds]=useState(0),[starting,setStarting]=useState(false);
@@ -36,7 +37,7 @@ export default function Toolbox(){
   const clientRef=useRef<SupabaseClient|null>(null),sessionRef=useRef<Session|null>(null),itemsRef=useRef<Item[]>([]);
   const lock=useRef(false),refreshLock=useRef(false),recorder=useRef<MediaRecorder|null>(null);
   const recordingOwner=useRef<string|null>(null),recTimer=useRef<ReturnType<typeof setInterval>|null>(null);
-  const recovery=useRef<Capture|null>(null),unmounted=useRef(false);
+  const unmounted=useRef(false);
   const actionRef=useRef<(text:string)=>Promise<void>>(async()=>{});
   const authGeneration=useRef(0);
 
@@ -158,19 +159,24 @@ export default function Toolbox(){
   useEffect(()=>{setLimit(25);},[view,area]);
   useEffect(()=>{setEditing(false);setSubTitle('');},[selected]);
   useEffect(()=>{
-    if(!recording)return;
+    if(!recording&&!unsaved.length)return;
     const protect=(e:BeforeUnloadEvent)=>{e.preventDefault();};
     const stopOnHide=()=>{if(document.visibilityState==='hidden'&&recorder.current?.state==='recording')recorder.current.stop();};
     window.addEventListener('beforeunload',protect);document.addEventListener('visibilitychange',stopOnHide);
     return()=>{window.removeEventListener('beforeunload',protect);document.removeEventListener('visibilitychange',stopOnHide);};
-  },[recording]);
+  },[recording,unsaved.length]);
 
   async function queue(capture:Capture){
-    recovery.current=capture;
-    await putLocal('captures',capture);
-    recovery.current=null;
+    try{await putLocal('captures',capture);}
+    catch(e){
+      setUnsaved(previous=>[...previous.filter(item=>item.id!==capture.id),capture]);
+      setSheet(null);setSelected(null);
+      throw e;
+    }
+    setUnsaved(previous=>previous.filter(item=>item.id!==capture.id));
     if(sessionRef.current?.user.id!==capture.user_id)return;
-    await updatePending();setFeedback(online?'Saved on this device. Organizing your thoughts…':'Saved on this device. We’ll organize it when you reconnect.');
+    setError('');setFeedback(online?'Saved on this device. Organizing your thoughts…':'Saved on this device. We’ll organize it when you reconnect.');
+    await updatePending().catch(()=>setError('Your capture was saved, but the pending list could not refresh. Keep this window open and retry.'));
     void navigator.storage?.persist?.().catch(()=>{});
     void sync();
   }
@@ -215,7 +221,7 @@ export default function Toolbox(){
         const audio=new Blob(chunks,{type:rec.mimeType||mime||'audio/mp4'});
         if(!audio.size){setError('No audio was recorded. Please try again.');return;}
         try{await queue({id:crypto.randomUUID(),user_id:owner,audio,captured_at:capturedAt,time_zone:Intl.DateTimeFormat().resolvedOptions().timeZone});}
-        catch(e){setError(errorText(e)+' Your recording is still in this window. Use Save recording below.');}
+        catch(e){setError(errorText(e));}
       };
       rec.start(1000);setRecording(true);
       let elapsed=0;recTimer.current=setInterval(()=>{elapsed++;setSeconds(elapsed);if(elapsed>=300&&rec.state==='recording')rec.stop();},1000);
@@ -305,7 +311,13 @@ export default function Toolbox(){
       <Button variant="ghost" size="icon" aria-label="Account and app settings" onClick={()=>setSheet('account')}><Settings2/></Button></header>
     {!online&&<div className="notice"><WifiOff/><span>You’re offline. Captures stay on this device until you reconnect.</span></div>}
     {!!error&&<div className="notice error" role="alert"><span>{error}</span><Button variant="ghost" aria-label="Dismiss error" onClick={()=>setError('')}>×</Button></div>}
-    {recovery.current?.user_id===session?.user.id&&recovery.current&&<Button variant="outline" onClick={()=>void queue(recovery.current!).catch(e=>setError(errorText(e)))}>Save recording again</Button>}
+    {unsaved.filter(capture=>capture.user_id===session.user.id).map(capture=><section key={capture.id} className="auth-card stack" role="region" aria-label="Unsaved capture" style={{marginTop:12}}>
+      <h2>{capture.audio?'Your recording needs saving':'Your thought needs saving'}</h2>
+      <p>This copy is only in this window. Keep it open until you save or download a copy.</p>
+      {capture.audio?<AudioPlayback blob={capture.audio}/>:<p className="detail-content">{capture.text}</p>}
+      <CaptureDownload capture={capture}/>
+      <Button variant="outline" onClick={()=>void queue(capture).catch(e=>setError(errorText(e)))}>Try saving again</Button>
+    </section>)}
     {pendingCount>0&&<button className="notice" style={{width:'100%',textAlign:'left'}} onClick={()=>setSheet('pending')}><CloudUpload/><span>{busy?'Organizing your thoughts…':pendingCount+' '+(pendingCount===1?'capture or change is':'captures or changes are')+' waiting to sync'}</span><ChevronRight size={17}/></button>}
     <div aria-live="polite" aria-atomic="true">{feedback&&<p className="feedback">{feedback}</p>}</div>
     <Tabs value={view} onValueChange={setView}>
@@ -343,7 +355,7 @@ export default function Toolbox(){
           <Button type="submit" disabled={!draft.trim()}><Check/>Save my thoughts</Button>
         </form>}
         {sheet==='pending'&&<div className="stack">
-          {pending.map(p=><div key={p.id} className="auth-card" style={{marginTop:0,padding:16}}><h3>{p.audio?'Voice capture':'Written capture'}</h3><p className="muted">{new Date(p.captured_at).toLocaleString()}</p>{p.text&&<p className="detail-content" style={{marginTop:8}}>{p.text}</p>}{p.audio&&<AudioPlayback blob={p.audio}/>}<p className="muted" style={{marginTop:10,fontSize:'.9rem'}}>{p.error||'Waiting to organize.'}</p></div>)}
+          {pending.map(p=><div key={p.id} className="auth-card" style={{marginTop:0,padding:16}}><h3>{p.audio?'Voice capture':'Written capture'}</h3><p className="muted">{new Date(p.captured_at).toLocaleString()}</p>{p.text&&<p className="detail-content" style={{marginTop:8}}>{p.text}</p>}{p.audio&&<AudioPlayback blob={p.audio}/>}<CaptureDownload capture={p}/><p className="muted" style={{marginTop:10,fontSize:'.9rem'}}>{p.error||'Waiting to organize.'}</p></div>)}
           {pendingChanges>0&&<p>{pendingChanges} task changes waiting to sync.</p>}
           <Button disabled={busy||!online} onClick={()=>void sync()}>{busy?<LoaderCircle className="spinning"/>:<CloudUpload/>}{busy?'Processing…':'Retry now'}</Button>
         </div>}
@@ -352,7 +364,8 @@ export default function Toolbox(){
           <div className="auth-card" style={{marginTop:0}}><h3>Keep it on your Home Screen</h3><p className="muted" style={{marginTop:8}}>In iPhone Safari, tap Share, then Add to Home Screen. Open it once online before using it offline.</p></div>
           <p className="muted">Reminders appear in the app when they’re due. This version doesn’t send push notifications.</p>
           {pendingCount>0&&<p className="muted">Your {pendingCount} pending captures or changes stay on this device and resume when you sign back into this account.</p>}
-          <Button variant="outline" disabled={authBusy||busy||recording} onClick={()=>void signOut()}><LogOut/>Sign out on this device</Button>
+          {unsaved.length>0&&<p>Save or download your unsaved capture before leaving this window.</p>}
+          <Button variant="outline" disabled={authBusy||busy||recording||unsaved.length>0} onClick={()=>void signOut()}><LogOut/>Sign out on this device</Button>
         </div>:loginForm)}
       </SheetContent>
     </Sheet>
@@ -388,4 +401,10 @@ function AudioPlayback({blob}:{blob:Blob}){
   const [url,setUrl]=useState('');
   useEffect(()=>{const value=URL.createObjectURL(blob);setUrl(value);return()=>URL.revokeObjectURL(value);},[blob]);
   return url?<audio controls src={url} style={{width:'100%',marginTop:12}}/>:null;
+}
+function CaptureDownload({capture}:{capture:Capture}){
+  const [url,setUrl]=useState('');
+  useEffect(()=>{const value=URL.createObjectURL(capture.audio??new Blob([capture.text??''],{type:'text/plain'}));setUrl(value);return()=>URL.revokeObjectURL(value);},[capture]);
+  const extension=capture.audio?(capture.audio.type.includes('mp4')?'m4a':capture.audio.type.includes('ogg')?'ogg':'webm'):'txt';
+  return url?<a href={url} download={'toolbox-'+capture.id+'.'+extension} style={{display:'inline-block',padding:'12px 0',textDecoration:'underline',fontWeight:600}}>{capture.audio?'Download recording':'Download thought'}</a>:null;
 }
