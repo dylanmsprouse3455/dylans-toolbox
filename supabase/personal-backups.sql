@@ -11,10 +11,12 @@ create table if not exists public.personal_backups (
 
 alter table public.personal_backups enable row level security;
 revoke all on public.personal_backups from anon;
-grant select,delete on public.personal_backups to authenticated;
+grant select,insert,delete on public.personal_backups to authenticated;
 
 drop policy if exists "Read own personal backups" on public.personal_backups;
 create policy "Read own personal backups" on public.personal_backups for select to authenticated using ((select auth.uid())=user_id);
+drop policy if exists "Insert own personal backups" on public.personal_backups;
+create policy "Insert own personal backups" on public.personal_backups for insert to authenticated with check ((select auth.uid())=user_id);
 drop policy if exists "Delete own personal backups" on public.personal_backups;
 create policy "Delete own personal backups" on public.personal_backups for delete to authenticated using ((select auth.uid())=user_id);
 
@@ -22,7 +24,7 @@ create index if not exists personal_backups_owner_created on public.personal_bac
 
 create or replace function public.toolbox_create_personal_backup()
 returns table(backup_id uuid, backup_created_at timestamptz, backed_up_items integer)
-language plpgsql security definer set search_path='' as $$
+language plpgsql security invoker set search_path='' as $$
 declare owner_id uuid=auth.uid(); snap jsonb; cnt integer; new_id uuid; made_at timestamptz;
 begin
   if owner_id is null or not public.toolbox_can_access() then raise exception 'Owner access required'; end if;
@@ -40,7 +42,7 @@ begin
 end $$;
 
 create or replace function public.toolbox_restore_personal_backup(backup_uuid uuid)
-returns integer language plpgsql security definer set search_path='' as $$
+returns integer language plpgsql security invoker set search_path='' as $$
 declare owner_id uuid=auth.uid(); snap jsonb; entry jsonb; safety jsonb; safety_count integer; restored integer=0;
 begin
   if owner_id is null or not public.toolbox_can_access() then raise exception 'Owner access required'; end if;
