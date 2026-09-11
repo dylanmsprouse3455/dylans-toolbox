@@ -1,7 +1,7 @@
 'use client';
 import {useCallback,useEffect,useRef,useState} from 'react';
 import type {Session,SupabaseClient} from '@supabase/supabase-js';
-import {Mic,Square,PenLine,Sun,Layers,CheckCheck,BriefcaseBusiness,House,Wallet,UserRound,Users,Folder,Lightbulb,Inbox,Check,CheckCircle2,Circle,ChevronRight,ArrowLeft,WifiOff,LoaderCircle,Settings2,FileText,Bookmark,CloudUpload,LogOut,ShieldCheck,Box} from 'lucide-react';
+import {Mic,Square,PenLine,Sun,Layers,CheckCheck,BriefcaseBusiness,House,Wallet,UserRound,Users,Folder,Lightbulb,Inbox,Check,CheckCircle2,Circle,ChevronRight,ArrowLeft,WifiOff,LoaderCircle,Settings2,FileText,Bookmark,CloudUpload,LogOut,ShieldCheck,Box,MessageCircle,X} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
@@ -12,7 +12,7 @@ import {getSupabase} from '@/lib/supabase';
 import {appBase,captureUrl,publicConfig} from '@/lib/public-config';
 import {AREAS,actionable,attention,dueLabel,dueTime,quadrant,type Area,type Item,type ItemType} from '@/lib/items';
 import {acceptCapture,cachedItems,cachedTurn,displayTurn,capturesFor,changesFor,putLocal,removeLocal,type Capture,type Change,type TurnReceipt,type AssistantTurn} from '@/lib/local';
-import {speakReply,stopSpeaking} from '@/lib/speech';
+import {stopSpeaking} from '@/lib/speech';
 import {appendSpeech,thoughtLines} from '@/lib/live-speech';
 
 type SpeechResultLike={isFinal:boolean;0:{transcript:string};length:number};
@@ -32,6 +32,7 @@ export default function Toolbox(){
   const [pending,setPending]=useState<Capture[]>([]),[pendingChanges,setPendingChanges]=useState(0);
   const [unsaved,setUnsaved]=useState<Capture[]>([]);
   const [lastTurn,setLastTurn]=useState<AssistantTurn|null>(null);
+  const [orbitOpen,setOrbitOpen]=useState(false),[orbitUnread,setOrbitUnread]=useState(false);
   const lastTurnRef=useRef<AssistantTurn|null>(null);
   const [sheet,setSheet]=useState<'write'|'account'|'pending'|null>(null);
   const [draft,setDraft]=useState(''),[selected,setSelected]=useState<string|null>(null);
@@ -53,13 +54,8 @@ export default function Toolbox(){
   const unmounted=useRef(false);
   const actionRef=useRef<(text:string)=>Promise<void>>(async()=>{});
   const authGeneration=useRef(0);
-  const spokenTurns=useRef(new Set<string>());
 
   const updateItems=useCallback((next:Item[])=>{itemsRef.current=next;setItems(next);},[]);
-  const speakTurn=useCallback((turn:AssistantTurn)=>{
-    if(spokenTurns.current.has(turn.id))return;
-    if(speakReply(turn.reply))spokenTurns.current.add(turn.id);
-  },[]);
   const updatePending=useCallback(async()=>{
     const owner=sessionRef.current?.user.id;if(!owner)return;
     const [captures,changes]=await Promise.all([capturesFor(owner),changesFor(owner)]);
@@ -115,7 +111,7 @@ export default function Toolbox(){
           const cached=await acceptCapture(capture,result.items,result.turn_id?result:undefined);
           if(sessionRef.current?.user.id!==owner)break;
           updateItems(cached);
-          if(result.turn_id){const turn=displayTurn(result);lastTurnRef.current=turn;setLastTurn(turn);if(capture.audio)speakTurn(turn);}
+          if(result.turn_id){const turn=displayTurn(result);lastTurnRef.current=turn;setLastTurn(turn);setOrbitOpen(false);setOrbitUnread(true);}
           const newItems=result.items as Item[];
           setFeedback(result.turn_id?'':newItems.length?'Put away '+newItems.length+' '+(newItems.length===1?'item':'items')+'. We’ll surface what matters.':'Nothing to add from that capture.');
           await updatePending();
@@ -127,7 +123,7 @@ export default function Toolbox(){
       await refresh();await updatePending();
     }catch(e){if(sessionRef.current?.user.id===owner)setError(errorText(e));}
     finally{lock.current=false;setBusy(false);}
-  },[refresh,speakTurn,updatePending,updateItems]);
+  },[refresh,updatePending,updateItems]);
 
   useEffect(()=>{
     unmounted.current=false;setOnline(navigator.onLine);
@@ -150,7 +146,7 @@ export default function Toolbox(){
         const previous=sessionRef.current?.user.id;
         sessionRef.current=next;setSession(next);
         if(previous!==next?.user.id){
-          updateItems([]);setPending([]);setPendingChanges(0);setSelected(null);setDraft('');setError('');setFeedback('');setSheet(null);setEditing(false);lastTurnRef.current=null;setLastTurn(null);
+          updateItems([]);setPending([]);setPendingChanges(0);setSelected(null);setDraft('');setError('');setFeedback('');setSheet(null);setEditing(false);lastTurnRef.current=null;setLastTurn(null);setOrbitOpen(false);setOrbitUnread(false);
           if(next){
             try{const [cache,turn]=await Promise.all([cachedItems(next.user.id),cachedTurn(next.user.id)]);if(sessionRef.current?.user.id===next.user.id){updateItems(cache);lastTurnRef.current=turn;setLastTurn(turn);}await updatePending();}catch(e){setError(errorText(e));}
           }
@@ -380,9 +376,15 @@ export default function Toolbox(){
     </section>)}
     {pendingCount>0&&<button className="notice" style={{width:'100%',textAlign:'left'}} onClick={()=>setSheet('pending')}><CloudUpload/><span>{busy?'Organizing your thoughts…':pendingCount+' '+(pendingCount===1?'capture or change is':'captures or changes are')+' waiting to sync'}</span><ChevronRight size={17}/></button>}
     <div aria-live="polite" aria-atomic="true">{feedback&&<p className="feedback">{feedback}</p>}</div>
-    {lastTurn&&<aside className={'assistant-bubble '+(lastTurn.needs_clarification?'question':'')} aria-label="Toolbox reply" aria-live="polite">
-      <strong>{lastTurn.needs_clarification?'One detail':'Toolbox'}</strong><p>{lastTurn.reply}</p>
-    </aside>}
+    {lastTurn&&<div className="orbit-reply">
+      <button className={'orbit-button '+(orbitUnread?'unread':'')} aria-label={orbitUnread?'Orbit has something to say':'Open Orbit’s message'} aria-expanded={orbitOpen} onClick={()=>{setOrbitOpen(open=>!open);setOrbitUnread(false);}}>
+        <MessageCircle aria-hidden/>{orbitUnread&&<span className="orbit-dot" aria-hidden/>}
+      </button>
+      {orbitOpen&&<aside className={'assistant-bubble '+(lastTurn.needs_clarification?'question':'')} aria-label="Orbit’s message">
+        <button className="orbit-close" aria-label="Close Orbit’s message" onClick={()=>setOrbitOpen(false)}><X/></button>
+        <strong>{lastTurn.needs_clarification?'Orbit needs one detail':'Orbit'}</strong><p>{lastTurn.reply}</p>
+      </aside>}
+    </div>}
     <Tabs value={view} onValueChange={setView}>
       <TabsContent value="today">
         <section className="intro"><p className="eyebrow">{today||'Your space to think'}</p><h2>A little less on your mind.</h2></section>
@@ -410,7 +412,7 @@ export default function Toolbox(){
           {!liveWordsAvailable&&recording&&<p className="muted">I’m still listening. Tap to review the recording when you finish.</p>}
           {recording?<p className="live-hint">Correct me by continuing to talk. Nothing changes until you approve the notes.</p>:<div className="review-actions"><Button onClick={()=>void approveReview()} disabled={!reviewDraft.trim()||busy}><Check/>Approve and organize</Button><Button variant="outline" onClick={()=>void microphone()} disabled={starting||busy}><Mic/>Keep talking</Button></div>}
         </section>}
-        {!recording&&!reviewDraft&&<p className="quiet-note">Your reply will appear in the corner and play aloud.</p>}
+        {!recording&&!reviewDraft&&<p className="quiet-note">When Orbit has something to say, a message indicator will appear in the corner.</p>}
       </TabsContent>
       <TabsContent value="areas">
         <section className="intro"><p className="eyebrow">Safely put away</p><h2>{area||'Everything has a place.'}</h2><p className="muted">{area?'Tasks, notes, and references for '+area.toLowerCase()+'.':'Find something when you need it.'}</p></section>
