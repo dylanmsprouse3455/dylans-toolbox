@@ -3,24 +3,40 @@ import type {Item} from './items.ts';
 import {organizedCapture} from './capture-schema.ts';
 const columns='id,type,title,content,area,status,importance,urgency,due_at,due_date,parent_id,updated_at';
 function turnFocus(content:string){try{const id=JSON.parse(content).focus_id;return typeof id==='string'&&/^[a-f0-9-]{36}$/i.test(id)?id:null;}catch{return null;}}
-export async function conversationContext(client:SupabaseClient,text:string,focusId?:string,replyTo?:string){
-  const recent=await client.from('items').select(columns).neq('type','capture').order('updated_at',{ascending:false}).limit(160);
+export async function conversationContext(client:SupabaseClient,text:string,focusId?:string,replyTo?:string,workspace:'personal'|'work'='personal'){
+  let recentQuery=client.from('items').select(columns).neq('type','capture');
+  if(workspace==='work')recentQuery=recentQuery.eq('area','Work');
+  const recent=await recentQuery.order('updated_at',{ascending:false}).limit(160);
   if(recent.error)throw new Error('STORE');
   const candidates=new Map<string,Item>((recent.data as Item[]).map(item=>[item.id,item]));
-  const history=await client.from('items').select('id,content,source_text,turn_result').eq('type','capture').eq('status','processed').order('created_at',{ascending:false}).limit(6);
+  let historyQuery=client.from('items').select('id,content,source_text,turn_result,area').eq('type','capture').eq('status','processed');
+  if(workspace==='work')historyQuery=historyQuery.eq('area','Work');
+  const history=await historyQuery.order('created_at',{ascending:false}).limit(6);
   if(history.error)throw new Error('STORE');
   const turns=history.data??[];
   if(replyTo&&!turns.some(turn=>turn.id===replyTo)){
-    const prior=await client.from('items').select('id,content,source_text,turn_result').eq('id',replyTo).eq('type','capture').eq('status','processed').maybeSingle();
+    let priorQuery=client.from('items').select('id,content,source_text,turn_result,area').eq('id',replyTo).eq('type','capture').eq('status','processed');
+    if(workspace==='work')priorQuery=priorQuery.eq('area','Work');
+    const prior=await priorQuery.maybeSingle();
     if(prior.error)throw new Error('STORE');if(prior.data)turns.unshift(prior.data);
   }
   const related=turns.flatMap(turn=>[...(turn.turn_result?.created_ids??[]),...(turn.turn_result?.updated_ids??[]),turnFocus(turn.content)]).filter(Boolean);
   const ids=[...new Set([...(focusId?[focusId]:[]),...related])].filter(id=>!candidates.has(id)).slice(0,100);
-  if(ids.length){const found=await client.from('items').select(columns).in('id',ids).neq('type','capture');if(found.error)throw new Error('STORE');for(const item of found.data??[])candidates.set(item.id,item as Item);}
-  // Search task titles as well as recent items, so older named tasks can be found.
-  const words=[...new Set(text.toLowerCase().match(/[\p{L}\p{N}]{3,40}/gu)??[])].filter(word=>!['the','and','that','this','with','have','done','tomorrow','today','please','task','time','work','bring'].includes(word)).slice(0,8);
-  if(words.length){const found=await client.from('items').select(columns).neq('type','capture').or(words.map(word=>'title.ilike.%'+word+'%').join(',')).order('updated_at',{ascending:false}).limit(80);if(found.error)throw new Error('STORE');for(const item of found.data??[])candidates.set(item.id,item as Item);}
-  return {candidates,input:{utterance:text,focused_item_id:focusId??null,reply_to:replyTo??null,search_is_partial:true,
+  if(ids.length){
+    let foundQuery=client.from('items').select(columns).in('id',ids).neq('type','capture');
+    if(workspace==='work')foundQuery=foundQuery.eq('area','Work');
+    const found=await foundQuery;
+    if(found.error)throw new Error('STORE');for(const item of found.data??[])candidates.set(item.id,item as Item);
+  }
+  // Search task titles as well as recent items, so older named tasks and case numbers can be found.
+  const words=[...new Set(text.toLowerCase().match(/[\p{L}\p{N}-]{3,40}/gu)??[])].filter(word=>!['the','and','that','this','with','have','done','tomorrow','today','please','task','time','work','bring'].includes(word)).slice(0,8);
+  if(words.length){
+    let foundQuery=client.from('items').select(columns).neq('type','capture').or(words.map(word=>'title.ilike.%'+word+'%').join(','));
+    if(workspace==='work')foundQuery=foundQuery.eq('area','Work');
+    const found=await foundQuery.order('updated_at',{ascending:false}).limit(80);
+    if(found.error)throw new Error('STORE');for(const item of found.data??[])candidates.set(item.id,item as Item);
+  }
+  return {candidates,input:{utterance:text,workspace,focused_item_id:focusId??null,reply_to:replyTo??null,search_is_partial:true,
     recent_turns:turns.map(turn=>({id:turn.id,user:turn.source_text.slice(0,4000),focused_item_id:turnFocus(turn.content),assistant:turn.turn_result?.reply??'',related_item_ids:[...(turn.turn_result?.created_ids??[]),...(turn.turn_result?.updated_ids??[])]})),
     existing_items:[...candidates.values()].map(item=>({...item,content:item.content.slice(0,800)}))}};
 }
