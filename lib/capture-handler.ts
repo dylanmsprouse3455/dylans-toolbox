@@ -2,7 +2,9 @@ import {createClient} from '@supabase/supabase-js';
 import {captureInstructions,organizedCapture,outputSchema} from './capture-schema.ts';
 import {z} from 'zod';
 import {conversationContext,checkedChanges} from './conversation.ts';
+import {normalizeWorkCaseNumbers,workState,withWorkState} from './work-context.ts';
 const metadata=z.object({id:z.string().uuid(),captured_at:z.string().datetime({offset:true}),time_zone:z.string().min(1).max(100)});
+const workMarker=/^WORK_STATE:\s*(todo|waiting|watching|follow_up)\s*\n?/i;
 export type CaptureConfig={SUPABASE_URL?:string;SUPABASE_ANON_KEY?:string;OPENAI_API_KEY?:string;OPENAI_MODEL?:string};
 export async function handleCapture(request:Request,c:CaptureConfig){
   const headers={'Cache-Control':'no-store','Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'authorization, apikey, content-type, x-client-info','Access-Control-Allow-Methods':'POST, OPTIONS'};
@@ -24,11 +26,13 @@ export async function handleCapture(request:Request,c:CaptureConfig){
     const parsed=metadata.safeParse({id:form.get('id'),captured_at:form.get('captured_at'),time_zone:form.get('time_zone')});
     if(!parsed.success)return json({error:'Capture details are invalid.'},400);
     const m=parsed.data;
+    let workspace:'personal'|'work'=form.get('workspace')==='work'?'work':'personal';
     const contextIds=z.object({focus_id:z.string().uuid().optional(),reply_to:z.string().uuid().optional()}).safeParse({focus_id:form.get('focus_id')||undefined,reply_to:form.get('reply_to')||undefined});
     if(!contextIds.success)return json({error:'Conversation details are invalid.'},400);
     try{new Intl.DateTimeFormat('en-US',{timeZone:m.time_zone}).format();}catch{return json({error:'Time zone is invalid.'},400);}
-    const {data:existing,error:existingError}=await client.from('items').select('id,status,source_text,turn_result').eq('id',m.id).eq('type','capture').maybeSingle();
+    const {data:existing,error:existingError}=await client.from('items').select('id,status,source_text,turn_result,area').eq('id',m.id).eq('type','capture').maybeSingle();
     if(existingError)throw new Error('STORE');
+    if(existing?.area==='Work')workspace='work';
     if(existing?.status==='processed'){
       if(existing.turn_result){const replay=await client.rpc('toolbox_apply_turn',{capture_uuid:m.id,source:'',entries:[],changes:[],reply:'',needs_clarification:false});if(replay.error)throw new Error('STORE');return json({...replay.data,already_saved:true});}
       const {data:items,error}=await client.from('items').select('*').eq('capture_id',m.id).neq('type','capture');
@@ -42,7 +46,7 @@ export async function handleCapture(request:Request,c:CaptureConfig){
     let text=typeof form.get('text')==='string'?String(form.get('text')).trim():'';
     const audio=form.get('audio');
     if(!existing){
-      const {error}=await client.from('items').insert({id:m.id,user_id:user.id,type:'capture',title:'Raw capture',content:JSON.stringify(contextIds.data),source_text:text.slice(0,30000),area:'Inbox',status:'pending',importance:1,urgency:1});
+      const {error}=await client.from('items').insert({id:m.id,user_id:user.id,type:'capture',title:'Raw capture',content:JSON.stringify({...contextIds.data,workspace}),source_text:text.slice(0,30000),area:workspace==='work'?'Work':'Inbox',status:'pending',importance:1,urgency:1});
       if(error&&error.code!=='23505')throw new Error('STORE');
     }
     if(audio instanceof File&&existing?.source_text)text=existing.source_text;
@@ -59,13 +63,14 @@ export async function handleCapture(request:Request,c:CaptureConfig){
       const result=await response.json() as {text?:string};
       text=result.text?.trim()??'';
     }
+    if(workspace==='work')text=normalizeWorkCaseNumbers(text);
     if(!text)return json({error:'No speech or text was found. Your recording is kept in Pending so you can try again.'},422);
     if(text.length>30000)return json({error:'Please keep each capture under 30,000 characters.'},413);
-    const {error:transcriptError}=await client.from('items').update({source_text:text}).eq('id',m.id).eq('status','pending');
+    const {error:transcriptError}=await client.from('items').update({source_text:text,area:workspace==='work'?'Work':'Inbox'}).eq('id',m.id).eq('status','pending');
     if(transcriptError)throw new Error('STORE');
-    const context=await conversationContext(client,text,contextIds.data.focus_id,contextIds.data.reply_to);
+    const context=await conversationContext(client,text,contextIds.data.focus_id,contextIds.data.reply_to,workspace);
     const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:'Bearer '+c.OPENAI_API_KEY,'Content-Type':'application/json'},
-      body:JSON.stringify({model:c.OPENAI_MODEL||'gpt-4.1-mini',store:false,instructions:captureInstructions(m.captured_at,m.time_zone),
+      body:JSON.stringify({model:c.OPENAI_MODEL||'gpt-4.1-mini',store:false,instructions:captureInstructions(m.captured_at,m.time_zone,workspace),
         input:JSON.stringify(context.input),text:{format:{type:'json_schema',name:'organized_capture',strict:true,schema:outputSchema}},max_output_tokens:10000}),
       signal:AbortSignal.timeout(60000)});
     if(!response.ok)throw new Error(response.status===429?'AI_LIMIT':'ORGANIZE');
@@ -73,6 +78,19 @@ export async function handleCapture(request:Request,c:CaptureConfig){
     if(result.status!=='completed')throw new Error('ORGANIZE');
     const output=result.output?.flatMap(o=>o.content??[]).filter(o=>o.type==='output_text').map(o=>o.text??'').join('');
     const organized=organizedCapture.parse(JSON.parse(output||'{}'));
+    if(workspace==='work'){
+      for(const item of organized.items){
+        item.area='Work';
+        item.content=withWorkState(item.content,workState(item.content));
+        for(const sub of item.subtasks){sub.area='Work';sub.content=withWorkState(sub.content,workState(sub.content));}
+      }
+      for(const change of organized.updates){
+        const prior=context.candidates.get(change.item_id);
+        if(!prior||prior.area!=='Work')throw new Error('ORGANIZE');
+        if(change.area!==null)change.area='Work';
+        if(change.content!==null&&!workMarker.test(change.content))change.content=withWorkState(change.content,workState(prior.content));
+      }
+    }
     const changes=checkedChanges(organized,context.candidates);
     const rows:Record<string,unknown>[]=[];
     for(const item of organized.items){
