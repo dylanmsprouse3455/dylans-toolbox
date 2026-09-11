@@ -14,13 +14,15 @@ import {dueLabel} from '@/lib/items';
 import {normalizeWorkCaseNumbers} from '@/lib/work-context';
 import type {AnswerStatus,BallOwner,WorkCase,WorkCommitReceipt,WorkEvent,WorkPreviewReceipt,WorkProposal,WorkRuleSuggestion,WorkState} from '@/lib/work-types';
 import './work-toolbox.css';
+import WorkCaptureHistory from './work-capture-history';
+import {savePendingWorkText,removePendingWorkText,type PendingWorkText} from '@/lib/work-local';
 
 type SpeechResultLike={isFinal:boolean;0:{transcript:string};length:number};
 type SpeechEventLike={resultIndex:number;results:ArrayLike<SpeechResultLike>};
 type SpeechRecognitionLike={continuous:boolean;interimResults:boolean;lang:string;onresult:((event:SpeechEventLike)=>void)|null;onerror:(()=>void)|null;onend:(()=>void)|null;start:()=>void;stop:()=>void;abort:()=>void};
 type SpeechRecognitionWindow=Window&{SpeechRecognition?:new()=>SpeechRecognitionLike;webkitSpeechRecognition?:new()=>SpeechRecognitionLike};
 type WorkAnswer={kind:'work_answer';turn_id:string;answer:string;answer_status?:AnswerStatus;reply:string};
-type WorkResponse={kind?:'work_preview'|'work_commit'|'work_answer';turn_id?:string;revision?:number;preview?:WorkPreviewReceipt['preview'];answer?:string;answer_status?:AnswerStatus;reply?:string;case_ids?:string[];cases?:WorkCase[];discarded?:boolean;approved_rule?:unknown;error?:string};
+type WorkResponse={kind?:'work_preview'|'work_commit'|'work_answer'|'work_transcript'|'work_discarded'|'work_superseded';capture_id?:string;transcript?:string;transcript_saved?:boolean;turn_id?:string;revision?:number;preview?:WorkPreviewReceipt['preview'];answer?:string;answer_status?:AnswerStatus;reply?:string;case_ids?:string[];cases?:WorkCase[];discarded?:boolean;approved_rule?:unknown;error?:string};
 
 type SectionKey=WorkState|'done';
 type WorkSuccess={reply:string;caseId:string|null};
@@ -71,6 +73,8 @@ export default function WorkToolbox(){
   const clientRef=useRef<SupabaseClient|null>(null),sessionRef=useRef<Session|null>(null),recognition=useRef<SpeechRecognitionLike|null>(null),recorder=useRef<MediaRecorder|null>(null);
   const recTimer=useRef<ReturnType<typeof setInterval>|null>(null),liveRef=useRef(''),interimRef=useRef('');
   const captureRef=useRef<HTMLElement|null>(null);
+  const [showCaptures,setShowCaptures]=useState(false),[recoverable,setRecoverable]=useState(false);
+  const pendingRef=useRef<PendingWorkText|null>(null),revisionRef=useRef<{receipt:string;text:string;id:string}|null>(null);
 
   const refresh=useCallback(async()=>{
     const client=clientRef.current,owner=sessionRef.current?.user.id;if(!client||!owner||!navigator.onLine)return;
@@ -105,7 +109,7 @@ export default function WorkToolbox(){
       if(dead)return;clientRef.current=client;
       const accept=async(next:Session|null)=>{
         if(next){const {data:allowed,error}=await client.rpc('toolbox_can_access');if(error||allowed!==true)next=null;}
-        sessionRef.current=next;setSession(next);setReady(true);if(next){void refresh();void recoverWizard();}else setCases([]);
+        sessionRef.current=next;setSession(next);setReady(true);if(next){void refresh();void recoverWizard();}else {setCases([]);setWizard(null);setShowCaptures(false);setPendingAudio(null);pendingRef.current=null;setRecoverable(false);setDraft('');}
       };
       const {data}=await client.auth.getSession();await accept(data.session);
       const auth=client.auth.onAuthStateChange((_event,next)=>setTimeout(()=>void accept(next),0));unsubscribe=()=>auth.data.subscription.unsubscribe();
@@ -137,33 +141,61 @@ export default function WorkToolbox(){
     setWizard(receipt);setWizardIndex(0);setCorrecting(false);setCorrection('');setReply('');setApprovedRuleKeys([]);
   }
 
-  async function sendPreview(text?:string,audio?:Blob,focusOverride?:string|null){
-    const normalized=text?normalizeWorkCaseNumbers(text.trim()):'';if(!normalized&&!audio)return;
-    setSuccess(null);setBusy(true);setError('');setReply('');
-    try{
-      const form=new FormData();form.set('mode','preview');form.set('id',crypto.randomUUID());form.set('captured_at',new Date().toISOString());form.set('time_zone',Intl.DateTimeFormat().resolvedOptions().timeZone);
-      const focus=focusOverride===undefined?focusCaseId:focusOverride;if(focus)form.set('focus_case_id',focus);
-      if(normalized)form.set('text',normalized);if(audio)form.set('audio',audio,'work-recording');
-      const {response,result}=await workRequest(form);
-      if(!response.ok)throw new Error(result.error||'Could not review that Work update.');
-      if(result.kind==='work_preview'){setCaptureMode(null);openWizard(result as WorkPreviewReceipt);setDraft('');setLiveTranscript('');setInterim('');setPendingAudio(null);return;}
-      if(result.kind==='work_answer'){
-        const answer=(result as WorkAnswer).answer;setCaptureMode(null);setReply(answer);speakReply(answer);setDraft('');setLiveTranscript('');setInterim('');setPendingAudio(null);return;
-      }
-      throw new Error('Orbit returned an unexpected Work response.');
-    }catch(e){setError(errorText(e));if(text)setDraft(normalized);if(audio)setPendingAudio(audio);}finally{setBusy(false);}
+  function acceptWorkResult(result:WorkResponse){
+    if(result.kind==='work_preview'){setCaptureMode(null);setShowCaptures(false);openWizard(result as WorkPreviewReceipt);return;}
+    if(result.kind==='work_answer'){setWizard(null);setCorrecting(false);setCorrection('');setCaptureMode(null);setShowCaptures(false);setReply(result.answer||'Capture saved.');speakReply(result.answer||'Capture saved.');return;}
+    if(result.kind==='work_commit'||result.kind==='work_discarded'||result.kind==='work_superseded'){setWizard(null);setCaptureMode(null);setShowCaptures(false);setReply(result.reply||'Capture saved.');return;}
+    throw new Error('Orbit returned an unexpected Work response.');
   }
 
-  async function reviseWizard(){
-    if(!wizard||!correction.trim())return;setBusy(true);setError('');
+  async function retryCapture(id:string){
+    setBusy(true);setError('');
     try{
-      const form=new FormData();form.set('mode','revise');form.set('id',wizard.turn_id);form.set('correction',correction.trim());
-      const {response,result}=await workRequest(form);if(!response.ok)throw new Error(result.error||'Could not revise that draft.');
-      if(result.kind==='work_preview'){openWizard(result as WorkPreviewReceipt);return;}
-      if(result.kind==='work_answer'){setWizard(null);setReply((result as WorkAnswer).answer);return;}
-      throw new Error('Orbit returned an unexpected revision.');
+      const form=new FormData();form.set('mode','retry');form.set('id',id);
+      const {response,result}=await workRequest(form);if(!response.ok)throw new Error(result.error||'Could not organize the saved text.');
+      acceptWorkResult(result);
+      const owner=sessionRef.current?.user.id;if(owner)await removePendingWorkText(id,owner);
+      if(pendingRef.current?.id===id){pendingRef.current=null;setRecoverable(false);setDraft('');setLiveTranscript('');setPendingAudio(null);}
     }catch(e){setError(errorText(e));}finally{setBusy(false);}
   }
+
+  async function sendPreview(text?:string,audio?:Blob,focusOverride?:string|null){
+    const owner=sessionRef.current?.user.id;if(!owner||!text?.trim()&&!audio&&!pendingRef.current)return;
+    setSuccess(null);setBusy(true);setError('');setReply('');
+    let transcribed=false;
+    try{
+      const focus=focusOverride===undefined?focusCaseId:focusOverride;
+      const pending=pendingRef.current??{id:crypto.randomUUID(),user_id:owner,text:text??'',captured_at:new Date().toISOString(),time_zone:Intl.DateTimeFormat().resolvedOptions().timeZone,focus_case_id:focus};
+      pendingRef.current=pending;setRecoverable(true);
+      if(pending.text)await savePendingWorkText(pending);
+      const form=new FormData();form.set('mode','transcribe');form.set('id',pending.id);form.set('captured_at',pending.captured_at);form.set('time_zone',pending.time_zone);
+      if(pending.focus_case_id)form.set('focus_case_id',pending.focus_case_id);
+      if(pending.text)form.set('text_json',JSON.stringify(pending.text));else if(audio)form.set('audio',audio,'work-recording');
+      const {response,result}=await workRequest(form);
+      if(typeof result.transcript==='string'){
+        transcribed=true;form.delete('audio');audio=undefined;setPendingAudio(null);pendingRef.current={...pending,text:result.transcript};setDraft(result.transcript);setLiveTranscript(result.transcript);
+        // The server has already saved this transcript; keep a text-only device copy too.
+        await savePendingWorkText(pendingRef.current);
+      }
+      if(!response.ok)throw new Error(result.error||'Could not save that Work capture.');
+      if(!transcribed)throw new Error('No transcript returned. Retry this capture.');
+      const review=new FormData();review.set('mode','retry');review.set('id',pending.id);
+      const reviewed=await workRequest(review);if(!reviewed.response.ok)throw new Error(reviewed.result.error||'Could not organize that capture. Your text is saved.');
+      acceptWorkResult(reviewed.result);await removePendingWorkText(pending.id,owner);
+      pendingRef.current=null;setRecoverable(false);setDraft('');setLiveTranscript('');setInterim('');setPendingAudio(null);
+    }catch(e){setError(errorText(e));if(audio&&!transcribed)setPendingAudio(audio);}finally{setBusy(false);}
+  }
+
+  async function correctCapture(receipt:string,text:string){
+    if(!text.trim())return;setBusy(true);setError('');
+    if(revisionRef.current?.receipt!==receipt||revisionRef.current.text!==text)revisionRef.current={receipt,text,id:crypto.randomUUID()};
+    try{
+      const form=new FormData();form.set('mode','revise');form.set('id',receipt);form.set('correction_json',JSON.stringify(text));form.set('revision_id',revisionRef.current.id);
+      const {response,result}=await workRequest(form);if(!response.ok)throw new Error(result.error||'Could not revise that interpretation. Retry from Recent Captures.');
+      acceptWorkResult(result);revisionRef.current=null;
+    }catch(e){setError(errorText(e));}finally{setBusy(false);}
+  }
+  async function reviseWizard(){if(wizard)await correctCapture(wizard.turn_id,correction);}
 
   async function approveRule(suggestion:WorkRuleSuggestion){
     if(!wizard||approvedRuleKeys.includes(suggestion.rule_key))return;setRuleBusy(suggestion.rule_key);setError('');
@@ -177,8 +209,9 @@ export default function WorkToolbox(){
   async function commitWizard(){
     if(!wizard)return;setBusy(true);setError('');
     try{
-      const form=new FormData();form.set('mode','commit');form.set('id',wizard.turn_id);
+      const form=new FormData();form.set('mode','commit');form.set('id',wizard.turn_id);form.set('revision',String(wizard.revision));
       const {response,result}=await workRequest(form);
+      if(response.status===409&&result.kind==='work_answer'){setWizard(null);acceptWorkResult(result);return;}
       if(response.status===409&&result.kind==='work_preview'&&result.preview){openWizard(result as WorkPreviewReceipt);setError(result.error||'A file changed; review the refreshed draft.');return;}
       if(!response.ok)throw new Error(result.error||'Could not save the confirmed Work update.');
       if(result.kind!=='work_commit')throw new Error('Orbit returned an unexpected save response.');
@@ -208,13 +241,13 @@ export default function WorkToolbox(){
       const live=new Recognition();recognition.current=live;live.continuous=true;live.interimResults=true;live.lang='en-US';
       live.onresult=event=>{
         let final='',temp='';for(let i=event.resultIndex;i<event.results.length;i++){const words=event.results[i][0]?.transcript??'';if(event.results[i].isFinal)final=appendSpeech(final,words);else temp=appendSpeech(temp,words);}
-        if(final){liveRef.current=appendSpeech(liveRef.current,final);setLiveTranscript(normalizeWorkCaseNumbers(liveRef.current));}
+        if(final){liveRef.current=appendSpeech(liveRef.current,final);setLiveTranscript(liveRef.current);}
         interimRef.current=temp;setInterim(temp);
       };
       live.onerror=()=>setError('I lost the live transcript. Tap again or type the update.');
       live.onend=()=>{
         recognition.current=null;if(recTimer.current)clearInterval(recTimer.current);setRecording(false);
-        const complete=normalizeWorkCaseNumbers(appendSpeech(liveRef.current,interimRef.current));setLiveTranscript(complete);setInterim('');interimRef.current='';
+        const complete=appendSpeech(liveRef.current,interimRef.current);setLiveTranscript(complete);setInterim('');interimRef.current='';
         if(complete)void sendPreview(complete,undefined,focusOverride);else setError('I didn’t catch any words. Try again.');
       };
       try{live.start();setRecording(true);let elapsed=0;recTimer.current=setInterval(()=>{elapsed++;setSeconds(elapsed);if(elapsed>=300)live.stop();},1000);}catch{recognition.current=null;setError('The microphone could not start. Check Safari’s microphone permission.');}
@@ -227,7 +260,7 @@ export default function WorkToolbox(){
       const mime=['audio/mp4','audio/webm;codecs=opus','audio/webm'].find(type=>MediaRecorder.isTypeSupported(type));
       const rec=new MediaRecorder(stream,mime?{mimeType:mime}:undefined),chunks:Blob[]=[];recorder.current=rec;setSeconds(0);
       rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};
-      rec.onstop=()=>{if(recTimer.current)clearInterval(recTimer.current);stream?.getTracks().forEach(track=>track.stop());setRecording(false);const audio=new Blob(chunks,{type:rec.mimeType||mime||'audio/mp4'});if(audio.size)void sendPreview(undefined,audio,focusOverride);else setError('No audio was recorded.');};
+      rec.onstop=()=>{if(recTimer.current)clearInterval(recTimer.current);stream?.getTracks().forEach(track=>track.stop());setRecording(false);const audio=new Blob(chunks,{type:rec.mimeType||mime||'audio/mp4'});chunks.length=0;rec.ondataavailable=null;rec.onstop=null;recorder.current=null;if(audio.size)void sendPreview(undefined,audio,focusOverride);else setError('No audio was recorded.');};
       rec.start(1000);setRecording(true);let elapsed=0;recTimer.current=setInterval(()=>{elapsed++;setSeconds(elapsed);if(elapsed>=300&&rec.state==='recording')rec.stop();},1000);
     }catch(e){stream?.getTracks().forEach(track=>track.stop());setError(e instanceof DOMException&&e.name==='NotAllowedError'?'Microphone access is off. Allow it in Safari’s website settings.':errorText(e));}
     finally{setStarting(false);}
@@ -263,9 +296,11 @@ export default function WorkToolbox(){
   if(!session)return <main className="work-toolbox"><section className="work-login"><BriefcaseBusiness/><h1>Work</h1><p>Sign in to open your private Work command center.</p><form onSubmit={e=>void signIn(e)}><label>Email<Input type="email" required value={email} onChange={e=>setEmail(e.target.value)}/></label><label>Password<Input type="password" required value={password} onChange={e=>setPassword(e.target.value)}/></label>{error&&<p className="work-error">{error}</p>}<Button type="submit" disabled={authBusy}>{authBusy?<LoaderCircle className="spinning"/>:'Sign in'}</Button></form></section></main>;
 
   return <main className="work-toolbox">
-    <header className="work-header"><div><p className="work-eyebrow">Dylan’s Toolbox</p><h1>Work</h1><p>Tell Orbit what happened. Confirm what it understood. Let it remember the rest.</p></div><div className="work-header-actions"><Button variant="outline" onClick={()=>void sendPreview('What actually needs me right now? Give me a concise briefing of my Work files, overdue follow-ups, and anything becoming time-sensitive.')} disabled={busy}><Sparkles/>Brief me</Button><span className="work-header-icon"><BriefcaseBusiness/></span></div></header>
+    <header className="work-header"><div><p className="work-eyebrow">Dylan’s Toolbox</p><h1>Work</h1><p>Tell Orbit what happened. Confirm what it understood. Let it remember the rest.</p></div><div className="work-header-actions"><Button variant="ghost" onClick={()=>setShowCaptures(true)} disabled={busy}><History/>Recent Captures</Button><Button variant="outline" onClick={()=>void sendPreview('What actually needs me right now? Give me a concise briefing of my Work files, overdue follow-ups, and anything becoming time-sensitive.')} disabled={busy}><Sparkles/>Brief me</Button><span className="work-header-icon"><BriefcaseBusiness/></span></div></header>
     {error&&<div className="work-error" role="alert">{error}</div>}
     {reply&&<aside className="work-orbit"><strong>Orbit</strong><p>{reply}</p></aside>}
+
+    {showCaptures&&clientRef.current&&session&&<WorkCaptureHistory client={clientRef.current} owner={session.user.id} busy={busy} onClose={()=>setShowCaptures(false)} onRetry={retryCapture} onLocalRetry={async item=>{pendingRef.current=item;setRecoverable(true);await sendPreview(item.text);}} onCorrect={correctCapture}/>}
 
     {attention.length>0&&<section className="work-attention"><div className="work-attention-heading"><AlertTriangle/><div><h2>Needs attention</h2><p>Only the things most likely to need you.</p></div></div><div className="work-attention-list">{attention.map(({item,reason})=><button type="button" key={item.id} onClick={()=>openCase(item)}><span><strong>{item.case_number||item.title}</strong><small>{reason}{item.next_action?' · '+item.next_action:''}</small></span><ChevronRight/></button>)}</div></section>}
 
@@ -278,8 +313,8 @@ export default function WorkToolbox(){
     </section>
 
     <div className="work-capture-launcher" aria-label="Add a Work update">
-      <button type="button" className="talk" onClick={()=>{setCaptureMode('talk');void microphone();}}><Mic/><span>Talk</span></button>
-      <button type="button" className="type" onClick={()=>setCaptureMode('type')}><PenLine/><span>Type</span></button>
+      <button type="button" className="talk" disabled={busy||recoverable} onClick={()=>{setCaptureMode('talk');void microphone();}}><Mic/><span>Talk</span></button>
+      <button type="button" className="type" disabled={busy} onClick={()=>setCaptureMode('type')}><PenLine/><span>Type</span></button>
     </div>
 
     <nav className="work-bottom-tabs" aria-label="Work sections">
@@ -291,12 +326,13 @@ export default function WorkToolbox(){
         <div className="work-capture-sheet-top"><div><p className="work-step">Update Work</p><h2>{captureMode==='talk'?(starting?'Starting microphone…':recording?'I’m listening.':'Talk to Orbit'):'Type to Orbit'}</h2><p>{focusCaseId?'Current file: '+(cases.find(item=>item.id===focusCaseId)?.case_number||cases.find(item=>item.id===focusCaseId)?.title||'selected file')+'. ':''}Nothing changes until you confirm the wizard.</p></div><Button size="icon" variant="ghost" aria-label="Close update" disabled={starting||recording||busy} onClick={()=>setCaptureMode(null)}><X/></Button></div>
         {focusCaseId&&<button type="button" className="work-focus-clear" onClick={()=>setFocusCaseId(null)}>Clear file context</button>}
         {captureMode==='talk'?<>
-          <Button className={'work-mic '+(recording?'recording':'')} onClick={()=>void microphone()} disabled={starting||busy&&!recording}>{starting||busy&&!recording?<LoaderCircle className="spinning"/>:recording?<Square fill="currentColor"/>:<Mic/>}</Button>
+          <Button className={'work-mic '+(recording?'recording':'')} onClick={()=>void microphone()} disabled={starting||recoverable||busy&&!recording}>{starting||busy&&!recording?<LoaderCircle className="spinning"/>:recording?<Square fill="currentColor"/>:<Mic/>}</Button>
           <p className="work-mic-label">{starting?'Starting…':recording?Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0')+' · Tap when done':busy?'Building your review…':'Tap to try again'}</p>
           {recording&&(liveTranscript||interim)&&<div className="work-live">{normalizeWorkCaseNumbers(liveTranscript)}{interim&&<span> {interim}</span>}</div>}
-          {pendingAudio&&!busy&&<Button variant="outline" onClick={()=>void sendPreview(undefined,pendingAudio)}>Retry saved recording</Button>}
+          {recoverable&&!pendingAudio&&!busy&&<Button variant="outline" onClick={()=>void sendPreview()}>Retry saved text</Button>}
+          {pendingAudio&&!busy&&<Button variant="outline" onClick={()=>void sendPreview(undefined,pendingAudio)}>Retry transcription</Button>}
         </>:<>
-          {!busy&&<form className="work-type compact" onSubmit={e=>{e.preventDefault();void sendPreview(draft);}}><Textarea autoFocus placeholder="Tell Orbit what happened, or ask where a file stands…" value={draft} onChange={e=>setDraft(e.target.value)} maxLength={30000}/><Button type="submit" disabled={!draft.trim()}><PenLine/>Review with Orbit</Button></form>}
+          {!busy&&<form className="work-type compact" onSubmit={e=>{e.preventDefault();void sendPreview(draft);}}><Textarea autoFocus placeholder="Tell Orbit what happened, or ask where a file stands…" value={draft} readOnly={recoverable} onChange={e=>setDraft(e.target.value)} maxLength={30000}/><Button type="submit" disabled={!draft.trim()}><PenLine/>{recoverable?'Retry saved text':'Review with Orbit'}</Button></form>}
           {busy&&<p className="work-loading"><LoaderCircle className="spinning"/> Building your review…</p>}
         </>}
       </section>

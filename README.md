@@ -44,3 +44,15 @@ In iPhone Safari, use Share → Add to Home Screen. Open online once to cache th
 
 npm test checks Home selection, IndexedDB failure recovery and account isolation, protected capture processing with controlled provider responses, transcript reuse, and actual PostgreSQL RLS/transaction behavior using PGlite. These tests do not substitute for live Supabase or physical iPhone checks. See VERIFICATION.md for deployment and browser results.
 
+
+## Work organized captures
+
+Work now saves the exact source transcript before organization or case reasoning. Typed text is JSON-encoded inside the request so multipart uploads cannot alter its line breaks. Work audio exists only in memory until transcription returns; only text enters Work's device recovery queue and private database. Personal keeps its existing capture flow and stores.
+
+Each Work capture has an immutable source and numbered organized interpretations. These retain meaningful file/person/property details, facts, actions, waiting items, conditions, dates, questions, and unlinked notes with exact source quotations. Dates keep their original wording and resolve against the original capture time and time zone. Organized statements are claims as of capture time, not confirmed current case truth.
+
+The existing confirmation wizard remains the only capture path that changes cases. Corrections create another interpretation and a new review receipt. Earlier interpretations and confirmed changes remain available; already-saved case memory changes only after another confirmation. Duplicate reports reuse existing event evidence and canonical facts. A genuinely new contact attempt or occurrence still creates a timeline entry.
+
+Use **Recent Captures** to search source/organized text, inspect versions, retry saved text, or correct an interpretation. It is history and recovery, not another daily inbox. A failed organization reuses the original transcript; a failed reasoning step reuses the saved organized version. Dismissing a case draft keeps its source and interpretation.
+
+Apply `supabase/work-organized-captures.sql` once after `work-memory-v2-hardening.sql`, then deploy the updated `work-capture` function and publish the frontend. The additive migration preserves existing Work receipts and cases. Older transcripts are labeled `legacy_snapshot`: earlier releases may already have normalized their wording or appended corrections, so original pre-edit words cannot be reconstructed. Their original capture-time metadata is retained when available. All new tables and the search view enforce the existing owner access boundary.

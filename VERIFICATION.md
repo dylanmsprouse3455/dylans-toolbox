@@ -50,3 +50,12 @@ Supabase connector calls deny project permission, but Supabase browser access wo
 Automatic approval review blocked opening the private Auth users list, citing account-email exposure. Do not retry that user-list access without approval. This does not prevent the user from signing in to the app and testing capture.
 
 The user can open the live app, sign in/create an account, and try a thought now. The user requested frequent updates, then asked to hurry/wrap up for a lower-tier agent. No separate task was created.
+
+## Organized Work Captures — September 11, 2026
+
+- Based on current GitHub main `8da5674c12d88d90f876b5b3e7f3f4efb608ed2d`; branch `feat/organized-work-captures`. No Personal modules, authentication settings, hosting, or existing case values changed.
+- Full regression suite: 42 tests pass. Coverage includes exact raw text/line breaks, organized and unlinked retention, immutable correction versions, confirmation and stale-version boundaries, recognized paraphrase/fact/event duplicate prevention, provenance, RLS owner isolation, legacy migration, AI failure retry without retranscription, and text-only Work device/database storage.
+- Production build with `TOOLBOX_BASE_PATH=/dylans-toolbox/` passes. Vite retains its existing bundle-size advisory; no unrelated splitting/refactor was introduced.
+- PostgreSQL tests use PGlite and real migration/RPC execution. Handler integration uses controlled AI and REST responses backed by that database; no production case is created by testing.
+- The cloud browser could not open the local preview (`ERR_BLOCKED_BY_CLIENT`), so browser interaction and physical iPhone microphone behavior were not verified in this environment.
+- Before migration, Supabase security reported the existing leaked-password-protection warning. Performance reported only informational unused-index notices. Deployment/advisor results are recorded in the PR.

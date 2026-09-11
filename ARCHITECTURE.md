@@ -54,3 +54,17 @@ No watchers, external logins, PDF processing, analytics, chat, shared accounts, 
 - [Supabase Auth](https://supabase.com/docs/guides/auth/passwords)
 - [OpenAI structured output](https://developers.openai.com/api/docs/guides/structured-outputs)
 - [OpenAI transcription](https://developers.openai.com/api/docs/guides/speech-to-text)
+
+## Work organized capture layer
+
+The Work-specific path is:
+
+`voice/type → immutable work_captures.raw_transcript → work_capture_versions.organized → existing case reasoning → existing wizard → confirmed case transaction`.
+
+`work_captures` owns source text and its original time/zone. `work_capture_versions` stores immutable interpretations, verbatim corrections, citation provenance, relative-date wording and resolution, retry state, and the exact confirmed proposal. Each correction has its own idempotent receipt ID. `items` continues to hold Work preview/answer/commit receipts, so rule suggestions and the wizard retain their existing contracts. Discarded/superseded receipts no longer delete source evidence. The confirmation endpoint checks the revision shown and the existing case version checks remain in force.
+
+The RLS-bound `work_capture_evidence` view exposes version/source labels and an indexed full-text search document. Work retrieval includes current cases, active/superseded facts, active/historical phases, timelines, organized captures and raw receipts. Structured current facts have precedence over older mentions. Organized claims include current/superseded/historical/uncertain status; current interpretation does not mean every claim was confirmed. Provenance pointers on case state, phase, fact and event records link confirmed changes to the organized version that produced them. Existing rows remain unchanged and can still be traced through their earlier receipt/event links.
+
+Work's separate IndexedDB store contains only explicit text fields and original capture metadata. Audio is never written there or to a Supabase bucket. Transcription and organization use separate requests in the current client, allowing the audio references to be released before organization starts. The Edge Function also accepts the earlier combined preview request for compatibility and persists transcription before invoking organization. Errors return any successfully transcribed text, even if its server write failed, so the client can retain a recovery copy. Text-only retries use the same capture ID.
+
+Regression coverage runs the real PostgreSQL schema with PGlite, plus the real Edge handler against a controlled provider/REST adapter. No test submits private case data to a live AI provider. Semantic paraphrase matching still relies on reasoning; explicit known event IDs and canonical fact/alias checks prevent replay of recognized duplicates, while receipt locks prevent duplicates on transport retries.

@@ -18,6 +18,7 @@ const ruleSuggestion=z.object({
 }).strict();
 
 export const workProposal=z.object({
+  duplicate_event_id:z.string().uuid().nullable().optional(),
   case_id:z.string().uuid().nullable(),
   expected_updated_at:z.string().datetime({offset:true}).nullable(),
   case_number:z.string().regex(/^G\d{2}-\d{4}$/).nullable(),
@@ -64,6 +65,7 @@ const nullableString={type:['string','null']} as const;
 const factChangeProperties={action:{type:'string',enum:['upsert','remove']},key:{type:'string'},value:{type:'string'},aliases:{type:'array',items:{type:'string'}},confidence:{type:'string',enum:['high','medium','low']}};
 const ruleSuggestionProperties={rule_key:{type:'string'},rule_text:{type:'string'},reason:{type:'string'}};
 const proposalProperties={
+  duplicate_event_id:{type:['string','null']},
   case_id:{type:['string','null']},expected_updated_at:{type:['string','null']},case_number:{type:['string','null'],pattern:'^G[0-9]{2}-[0-9]{4}$'},title:{type:'string'},
   status:{type:'string',enum:['active','completed']},workflow_state:{type:'string',enum:['todo','waiting','watching','follow_up']},ball_owner:{type:'string',enum:['me','other','watching','none']},ball_with:nullableString,
   current_situation:{type:'string'},next_action:{type:'string'},memory_summary:{type:'string'},follow_up_at:nullableString,follow_up_date:{type:['string','null'],pattern:'^\\d{4}-\\d{2}-\\d{2}$'},follow_up_condition:nullableString,closing_date:{type:['string','null'],pattern:'^\\d{4}-\\d{2}-\\d{2}$'},

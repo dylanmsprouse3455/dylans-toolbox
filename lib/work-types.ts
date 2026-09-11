@@ -98,6 +98,7 @@ export type WorkRuleSuggestion={
 };
 
 export type WorkProposal={
+  duplicate_event_id?:string|null;
   case_id:string|null;
   expected_updated_at:string|null;
   case_number:string|null;
