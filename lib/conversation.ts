@@ -38,7 +38,7 @@ export async function conversationContext(client:SupabaseClient,text:string,focu
   // Search task titles as well as recent items, so older named tasks and case numbers can be found.
   const words=[...new Set(text.toLowerCase().match(/[\p{L}\p{N}-]{3,40}/gu)??[])].filter(word=>!['the','and','that','this','with','have','done','tomorrow','today','please','task','time','work','bring'].includes(word)).slice(0,8);
   if(words.length){
-    let foundQuery=client.from('items').select(columns).neq('type','capture').or(words.map(word=>'title.ilike.%'+word+'%').join(','));
+    let foundQuery=client.from('items').select(columns).neq('type','capture').or(words.flatMap(word=>['title.ilike.%'+word+'%','content.ilike.%'+word+'%']).join(','));
     if(workspace==='work')foundQuery=foundQuery.eq('area','Work');else foundQuery=foundQuery.neq('area','Work');
     const found=await foundQuery.order('updated_at',{ascending:false}).limit(80);
     if(found.error)throw new Error('STORE');for(const item of (found.data??[]) as Item[])if(belongs(item,workspace))candidates.set(item.id,item);
