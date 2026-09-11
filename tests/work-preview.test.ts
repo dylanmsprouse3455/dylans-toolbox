@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {groupCaseHistory,validateWorkPreview} from '../lib/work-memory.ts';
+import {groupCaseHistory,validateWorkPreview,workSearchTerms} from '../lib/work-memory.ts';
 import {workPreviewInstructions} from '../lib/work-preview-schema.ts';
 import type {WorkCase} from '../lib/work-types.ts';
 
@@ -50,10 +50,16 @@ test('groups timeline history by file and keeps newest entries first',()=>{
   assert.equal(grouped.get('two')?.[0].summary,'Other file.');
 });
 
+test('search terms retain distinctive address and person tokens',()=>{
+  assert.deepEqual(workSearchTerms("For 1445 Old Jonesboro Rd I need Christopher's phone number"),['1445','jonesboro','christopher','phone','number']);
+});
+
 test('instructions treat reopened completed files as the same case with history',()=>{
   const instructions=workPreviewInstructions('2026-09-11T16:00:00-04:00','America/New_York');
   assert.match(instructions,/A completed file is NOT a blank slate/);
-  assert.match(instructions,/continue the same case_id/);
+  assert.match(instructions,/same case_id/);
   assert.match(instructions,/different situation/);
-  assert.match(instructions,/history array for that exact file/);
+  assert.match(instructions,/SEARCH BEFORE SAYING NOT FOUND/);
+  assert.match(instructions,/focused_case_id is only conversational context/);
+  assert.match(instructions,/I need to call\/text\/email\/get\/find\/pull\/look up/);
 });

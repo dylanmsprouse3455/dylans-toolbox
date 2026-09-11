@@ -4,6 +4,8 @@ export function normalizeWorkCaseNumbers(input:string){
   let text=input;
   // Speech recognition sometimes turns "twenty six" into "20 6".
   text=text.replace(/\b[gG]\s*[-:]?\s*20\s*[- ]?\s*(\d)\s*[- ]?\s*(\d{4})\b/g,(_match,yearDigit,sequence)=>`G2${yearDigit}-${sequence}`);
+  // Safari/iPhone speech can insert filler such as "is": "G 26 is 0481".
+  text=text.replace(/\b[gG]\s*[-:]?\s*(\d{2})\s*(?:is|as|it\s+is|it's)\s*[- ]?\s*(\d{4})\b/gi,(_match,year,sequence)=>`G${year}-${sequence}`);
   // Standard spaced, hyphenated, or run-together forms: G 26 0441 / G26-0441 / G260441.
   text=text.replace(/\b[gG]\s*[-:]?\s*(\d{2})\s*[- ]?\s*(\d{4})\b/g,(_match,year,sequence)=>`G${year}-${sequence}`);
   // Individually recognized digits: G 2 6 0 4 4 1.
