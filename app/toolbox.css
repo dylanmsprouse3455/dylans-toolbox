@@ -29,6 +29,10 @@ p { margin:0; }
 .mic-button.recording { background:#b42338; animation:breathe 1.5s ease-in-out infinite; }
 .capture-label { font-weight:600; font-size:1rem; }
 .capture-secondary { margin:12px 0 0; display:flex; justify-content:center; }
+.assistant-bubble { position:fixed; z-index:40; top:calc(78px + env(safe-area-inset-top)); right:max(16px,calc((100vw - 740px)/2 + 24px)); width:min(320px,calc(100vw - 44px)); padding:13px 16px; background:#172e56; color:#fff; border-radius:18px 6px 18px 18px; box-shadow:0 10px 30px #172e5633; }
+.assistant-bubble strong { display:block; font-size:.78rem; letter-spacing:.04em; margin-bottom:3px; }
+.assistant-bubble p { font-size:.92rem; line-height:1.42; max-height:8.6em; overflow:auto; }
+.assistant-bubble.question { background:#7b4a11; }
 .attention { padding-top:31px; }
 .section-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
 .section-heading .muted { font-size:.875rem; }
@@ -79,5 +83,6 @@ input[data-slot=input],select { min-height:48px; background:#fff; padding:10px 1
 @keyframes spin { to { transform:rotate(360deg); } }
 @keyframes breathe { 50% { box-shadow:0 0 0 12px #b4233818; } }
 @media(min-width:740px) { .shell { padding-top:20px; } .capture-card { padding:30px; } .intro { padding-top:34px; } }
-@media(max-width:380px) { .shell { padding-left:17px; padding-right:17px; } h1 { font-size:1.1rem; } .area-button { padding:15px 10px; gap:8px; } }
+@media(max-width:380px) { .shell { padding-left:17px; padding-right:17px; } h1 { font-size:1.1rem; } .area-button { padding:15px 10px; gap:8px; } .bottom-nav [role=tab] { padding:7px 4px; font-size:.78rem; } }
 @media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none!important; transition:none!important; } }
+
