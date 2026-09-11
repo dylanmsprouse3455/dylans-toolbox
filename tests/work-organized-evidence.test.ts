@@ -21,6 +21,13 @@ test('organized evidence reconciles harmless case and punctuation formatting bac
   assert.equal(result.entries[0].date_wording,'Today around four');
 });
 
+test('organized evidence corrects model case-number drift from the source transcript',()=>{
+  const driftRaw='So there is a G 20 60232 Austin Porter need to get his mailing address';
+  const driftBundle:CaptureBundle={capture:{...bundle.capture,id:'67e34ec5-e79b-4ad4-93d5-fb9e39a3e8b2',raw_transcript:driftRaw},versions:[]};
+  const result=validateOrganizedCapture({summary:'There is a G20-6023 associated with Austin Porter and his mailing address is needed.',entries:[{kind:'action',text:"Need to get Austin Porter's mailing address.",case_numbers:['G20-6023'],people:['Austin Porter'],property:null,truth_status:'current',source:'raw_transcript',source_version:1,source_excerpt:driftRaw,date_wording:null,resolved_date:null,resolved_at:null}]},driftBundle);
+  assert.deepEqual(result.entries[0].case_numbers,['G26-0232']);
+});
+
 test('organized evidence still rejects a semantic paraphrase that is not in the source',()=>{
   assert.throws(()=>validateOrganizedCapture({
     summary:'Call again.',

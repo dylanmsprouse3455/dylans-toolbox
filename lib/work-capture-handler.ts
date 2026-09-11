@@ -124,7 +124,7 @@ async function reason(c:WorkCaptureConfig,client:SupabaseClient,bundle:CaptureBu
   const prior=version.version>1?await receiptFor(client,bundle.versions.at(-2)!.receipt_id):null;
   const priorResult=(refresh?current.turn_result:prior?.turn_result) as {preview?:WorkPreview}|null;
   const interpretation=version.organized!;
-  const preview=await askOpenAI(c,client,normalizeWorkCaseNumbers(interpretation.summary),root.captured_at,root.time_zone,root.focus_case_id??undefined,priorResult?.preview,refresh?'Refresh against current case data; preserve the organized meaning.':version.correction??undefined,bundle);
+  const preview=await askOpenAI(c,client,normalizeWorkCaseNumbers(root.raw_transcript),root.captured_at,root.time_zone,root.focus_case_id??undefined,priorResult?.preview,refresh?'Refresh against current case data; preserve the organized meaning.':version.correction??undefined,bundle);
   const result=preview.kind==='answer'?{kind:'work_answer',answer:preview.answer,answer_status:preview.answer_status,reply:preview.answer}:{kind:'work_preview',preview};
   const stored=await storeVersion(client,version.id,{preview_result:result,expected_revision:expectedRevision});
   return {turn_id:stored.id,...stored.turn_result as object};
