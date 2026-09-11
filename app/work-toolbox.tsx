@@ -2,7 +2,7 @@
 
 import {useCallback,useEffect,useRef,useState} from 'react';
 import type {Session,SupabaseClient} from '@supabase/supabase-js';
-import {BriefcaseBusiness,Check,CheckCircle2,Clock3,Eye,FileText,LoaderCircle,Mic,PenLine,RotateCcw,Send,Square} from 'lucide-react';
+import {BriefcaseBusiness,Check,CheckCircle2,Clock3,Eye,LoaderCircle,Mic,PenLine,RotateCcw,Send,Square} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
@@ -154,6 +154,5 @@ export default function WorkToolbox(){
       <section className="work-group completed"><div className="work-group-heading"><span><CheckCircle2/></span><div><h2>Done</h2><p>Finished Work items.</p></div><b>{completed.length}</b></div>{completed.slice(0,20).map(item=><article className="work-item" key={item.id}><div className="work-item-main"><h3>{item.title}</h3>{workContent(item.content)&&<p>{workContent(item.content)}</p>}</div><Button size="icon" variant="ghost" aria-label={'Reopen '+item.title} onClick={()=>void changeStatus(item)} disabled={busy}><RotateCcw/></Button></article>)}</section>
       {loading&&<p className="work-loading"><LoaderCircle className="spinning"/> Refreshing Work…</p>}
     </section>
-    <p className="work-case-hint"><FileText/>Case-number example: “G 20 6 0441” → <strong>G26-0441</strong> when the digits are clear.</p>
   </main>;
 }
