@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {attention,type Item} from '../lib/items.ts';
 const now=Date.parse('2026-09-11T12:00:00Z');
-const item=(id:string,extra:Partial<Item>={}):Item=>({id,user_id:'a',title:id,type:'task',content:'',area:'Home',status:'active',importance:4,urgency:1,due_at:null,parent_id:null,capture_id:null,source_text:'',created_at:new Date(now).toISOString(),updated_at:new Date(now).toISOString(),...extra});
+const item=(id:string,extra:Partial<Item>={}):Item=>({id,user_id:'a',title:id,type:'task',content:'',area:'Home',status:'active',importance:4,urgency:1,due_at:null,parent_id:null,depends_on_id:null,capture_id:null,source_text:'',created_at:new Date(now).toISOString(),updated_at:new Date(now).toISOString(),...extra});
 test('Home caps attention at five and excludes notes, references, completed, subtasks and backlog',()=>{
   const rows=[...Array.from({length:9},(_,i)=>item(String(i))),item('note',{type:'note',importance:5}),item('reference',{type:'reference',urgency:5}),item('done',{status:'completed'}),item('child',{parent_id:'1'}),item('backlog',{importance:1,urgency:1})];
   const home=attention(rows,now);
@@ -27,4 +27,12 @@ test('Today reserves room for an old untouched task even with five stronger fres
   const fresh=Array.from({length:5},(_,i)=>item('fresh'+i,{importance:5,urgency:5,last_opened_at:'2026-09-11T11:30:00Z'}));
   const home=attention([...fresh,stale],now);
   assert.equal(home.length,5);assert.ok(home.some(i=>i.id==='stale'));
+});
+
+test('A separate task waits behind its active prerequisite and can surface after that prerequisite is done',()=>{
+  const grocery=item('grocery',{importance:4});
+  const boxes=item('boxes',{importance:5,urgency:5,depends_on_id:'grocery'});
+  assert.equal(attention([grocery,boxes],now).some(i=>i.id==='boxes'),false);
+  grocery.status='completed';
+  assert.equal(attention([grocery,boxes],now).some(i=>i.id==='boxes'),true);
 });
