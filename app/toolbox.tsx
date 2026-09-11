@@ -1,7 +1,7 @@
 'use client';
 import {useCallback,useEffect,useRef,useState} from 'react';
 import type {Session,SupabaseClient} from '@supabase/supabase-js';
-import {Mic,Square,PenLine,Sun,Layers,CheckCheck,BriefcaseBusiness,House,Wallet,UserRound,Users,Folder,Lightbulb,Inbox,Check,CheckCircle2,Circle,ChevronRight,ArrowLeft,WifiOff,LoaderCircle,Settings2,FileText,Bookmark,CloudUpload,LogOut,ShieldCheck,Box,MessageCircle,X} from 'lucide-react';
+import {Mic,Square,PenLine,Sun,Layers,CheckCheck,BriefcaseBusiness,House,Wallet,UserRound,Users,Folder,Lightbulb,Inbox,Check,CheckCircle2,Circle,ChevronRight,ArrowLeft,WifiOff,LoaderCircle,Settings2,FileText,Bookmark,CloudUpload,LogOut,ShieldCheck,Box,MessageSquareText,Search,StickyNote,X} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
@@ -10,7 +10,7 @@ import {Sheet,SheetContent,SheetTitle,SheetDescription} from '@/components/ui/sh
 import {Select,SelectContent,SelectItem,SelectTrigger,SelectValue} from '@/components/ui/select';
 import {getSupabase} from '@/lib/supabase';
 import {appBase,captureUrl,publicConfig} from '@/lib/public-config';
-import {AREAS,actionable,attention,dueLabel,dueTime,quadrant,type Area,type Item,type ItemType} from '@/lib/items';
+import {AREAS,PERSONAL_AREAS,actionable,attention,dueLabel,dueTime,quadrant,unopenedForDay,completionDayKey,completionDayLabel,completionMoment,type Area,type Item,type ItemType} from '@/lib/items';
 import {acceptCapture,cachedItems,cachedTurn,displayTurn,capturesFor,changesFor,putLocal,removeLocal,type Capture,type Change,type TurnReceipt,type AssistantTurn} from '@/lib/local';
 import {stopSpeaking} from '@/lib/speech';
 import {appendSpeech,thoughtLines} from '@/lib/live-speech';
@@ -19,6 +19,7 @@ type SpeechResultLike={isFinal:boolean;0:{transcript:string};length:number};
 type SpeechEventLike={resultIndex:number;results:ArrayLike<SpeechResultLike>};
 type SpeechRecognitionLike={continuous:boolean;interimResults:boolean;lang:string;onresult:((event:SpeechEventLike)=>void)|null;onerror:(()=>void)|null;onend:(()=>void)|null;start:()=>void;stop:()=>void;abort:()=>void};
 type SpeechRecognitionWindow=Window&{SpeechRecognition?:new()=>SpeechRecognitionLike;webkitSpeechRecognition?:new()=>SpeechRecognitionLike};
+type AiHistoryRow={id:string;source_text:string;turn_result:{reply?:string;needs_clarification?:boolean}|null;created_at:string};
 
 const areaIcons={Work:BriefcaseBusiness,Home:House,Money:Wallet,Personal:UserRound,People:Users,Projects:Folder,Ideas:Lightbulb,Inbox};
 const errorText=(e:unknown)=>e instanceof Error?e.message:'Something went wrong. Please try again.';
@@ -32,7 +33,7 @@ export default function Toolbox(){
   const [pending,setPending]=useState<Capture[]>([]),[pendingChanges,setPendingChanges]=useState(0);
   const [unsaved,setUnsaved]=useState<Capture[]>([]);
   const [lastTurn,setLastTurn]=useState<AssistantTurn|null>(null);
-  const [orbitOpen,setOrbitOpen]=useState(false),[orbitUnread,setOrbitUnread]=useState(false);
+  const [aiDraft,setAiDraft]=useState(''),[aiHistory,setAiHistory]=useState<AiHistoryRow[]>([]),[completedQuery,setCompletedQuery]=useState('');
   const lastTurnRef=useRef<AssistantTurn|null>(null);
   const [sheet,setSheet]=useState<'write'|'account'|'pending'|null>(null);
   const [draft,setDraft]=useState(''),[selected,setSelected]=useState<string|null>(null);
@@ -50,7 +51,7 @@ export default function Toolbox(){
   const lock=useRef(false),refreshLock=useRef(false),recorder=useRef<MediaRecorder|null>(null);
   const recordingOwner=useRef<string|null>(null),recTimer=useRef<ReturnType<typeof setInterval>|null>(null);
   const recognition=useRef<SpeechRecognitionLike|null>(null),liveTranscriptRef=useRef(''),interimTranscriptRef=useRef('');
-  const reviewContext=useRef<{captured_at:string;focus_id?:string;reply_to?:string}|null>(null);
+  const reviewContext=useRef<{captured_at:string;focus_id?:string;reply_to?:string;channel?:'capture'|'ai'}|null>(null);
   const unmounted=useRef(false);
   const actionRef=useRef<(text:string)=>Promise<void>>(async()=>{});
   const authGeneration=useRef(0);
@@ -61,6 +62,11 @@ export default function Toolbox(){
     const [captures,changes]=await Promise.all([capturesFor(owner),changesFor(owner)]);
     if(sessionRef.current?.user.id===owner){setPending(captures);setPendingChanges(changes.length);}
   },[]);
+  const loadAiHistory=useCallback(async()=>{
+    const client=clientRef.current,owner=sessionRef.current?.user.id;if(!client||!owner||!navigator.onLine)return;
+    const result=await client.from('items').select('id,source_text,turn_result,created_at').eq('user_id',owner).eq('type','capture').eq('title','AI conversation').eq('status','processed').order('created_at',{ascending:false}).limit(30);
+    if(result.error)throw result.error;setAiHistory(((result.data??[]) as AiHistoryRow[]).reverse());
+  },[]);
   const refresh=useCallback(async()=>{
     const client=clientRef.current,owner=sessionRef.current?.user.id;
     if(!client||!owner||!navigator.onLine||refreshLock.current)return;
@@ -69,7 +75,7 @@ export default function Toolbox(){
     try{
       const records:Item[]=[];
       for(let from=0;;from+=500){
-        const {data,error}=await client.from('items').select('*').eq('user_id',owner).neq('type','capture').order('id').range(from,from+499);
+        const {data,error}=await client.from('items').select('*').eq('user_id',owner).neq('type','capture').neq('area','Work').order('id').range(from,from+499);
         if(error)throw error;
         records.push(...(data as Item[]));
         if(data.length<500)break;
@@ -105,13 +111,14 @@ export default function Toolbox(){
           if(capture.audio)form.set('audio',capture.audio,'recording');
           if(capture.focus_id)form.set('focus_id',capture.focus_id);
           if(capture.reply_to)form.set('reply_to',capture.reply_to);
+          if(capture.channel)form.set('channel',capture.channel);
           const response=await fetch(captureUrl,{method:'POST',headers:{Authorization:'Bearer '+data.session.access_token,apikey:publicConfig.key},body:form,signal:AbortSignal.timeout(190000)});
           const result=await response.json() as TurnReceipt&{error?:string};
           if(!response.ok)throw new Error(result.error||'Your capture is saved. Processing will retry.');
           const cached=await acceptCapture(capture,result.items,result.turn_id?result:undefined);
           if(sessionRef.current?.user.id!==owner)break;
           updateItems(cached);
-          if(result.turn_id){const turn=displayTurn(result);lastTurnRef.current=turn;setLastTurn(turn);setOrbitOpen(false);setOrbitUnread(true);}
+          if(result.turn_id){const turn=displayTurn(result);lastTurnRef.current=turn;setLastTurn(turn);if(capture.channel==='ai')void loadAiHistory();}
           const newItems=result.items as Item[];
           setFeedback(result.turn_id?'':newItems.length?'Put away '+newItems.length+' '+(newItems.length===1?'item':'items')+'. We’ll surface what matters.':'Nothing to add from that capture.');
           await updatePending();
@@ -123,7 +130,7 @@ export default function Toolbox(){
       await refresh();await updatePending();
     }catch(e){if(sessionRef.current?.user.id===owner)setError(errorText(e));}
     finally{lock.current=false;setBusy(false);}
-  },[refresh,updatePending,updateItems]);
+  },[refresh,updatePending,updateItems,loadAiHistory]);
 
   useEffect(()=>{
     unmounted.current=false;setOnline(navigator.onLine);
@@ -146,7 +153,7 @@ export default function Toolbox(){
         const previous=sessionRef.current?.user.id;
         sessionRef.current=next;setSession(next);
         if(previous!==next?.user.id){
-          updateItems([]);setPending([]);setPendingChanges(0);setSelected(null);setDraft('');setError('');setFeedback('');setSheet(null);setEditing(false);lastTurnRef.current=null;setLastTurn(null);setOrbitOpen(false);setOrbitUnread(false);
+          updateItems([]);setPending([]);setPendingChanges(0);setSelected(null);setDraft('');setError('');setFeedback('');setSheet(null);setEditing(false);lastTurnRef.current=null;setLastTurn(null);setAiHistory([]);setAiDraft('');setCompletedQuery('');
           if(next){
             try{const [cache,turn]=await Promise.all([cachedItems(next.user.id),cachedTurn(next.user.id)]);if(sessionRef.current?.user.id===next.user.id){updateItems(cache);lastTurnRef.current=turn;setLastTurn(turn);}await updatePending();}catch(e){setError(errorText(e));}
           }
@@ -173,6 +180,7 @@ export default function Toolbox(){
     return()=>{clearInterval(timer);clearInterval(refreshTimer);window.removeEventListener('online',wake);window.removeEventListener('focus',wake);document.removeEventListener('visibilitychange',wake);};
   },[session?.user.id,sync,refresh]);
   useEffect(()=>{if(!feedback)return;const timer=setTimeout(()=>setFeedback(''),9000);return()=>clearTimeout(timer);},[feedback]);
+  useEffect(()=>{if(session&&view==='ai')void loadAiHistory().catch(e=>setError(errorText(e)));},[session?.user.id,view,loadAiHistory]);
   useEffect(()=>{setLimit(25);},[view,area]);
   useEffect(()=>{setEditing(false);setSubTitle('');},[selected]);
   useEffect(()=>{
@@ -192,7 +200,7 @@ export default function Toolbox(){
     }
     setUnsaved(previous=>previous.filter(item=>item.id!==capture.id));
     if(sessionRef.current?.user.id!==capture.user_id)return;
-    setError('');setFeedback(online?'Saved on this device. Organizing your thoughts…':'Saved on this device. We’ll organize it when you reconnect.');
+    setError('');setFeedback(capture.channel==='ai'?(online?'Sending to Orbit…':'Saved on this device. It’ll send when you reconnect.'):(online?'Saved on this device. Organizing your thoughts…':'Saved on this device. We’ll organize it when you reconnect.'));
     await updatePending().catch(()=>setError('Your capture was saved, but the pending list could not refresh. Keep this window open and retry.'));
     void navigator.storage?.persist?.().catch(()=>{});
     void sync();
@@ -201,8 +209,14 @@ export default function Toolbox(){
     const owner=sessionRef.current?.user.id;
     if(!owner){setSheet('account');throw new Error('Sign in before saving.');}
     if(!text.trim()||text.length>30000)throw new Error('Add a thought under 30,000 characters.');
-    await queue({id:crypto.randomUUID(),user_id:owner,text:text.trim(),captured_at:new Date().toISOString(),time_zone:Intl.DateTimeFormat().resolvedOptions().timeZone,reply_to:lastTurnRef.current?.id});
+    await queue({id:crypto.randomUUID(),user_id:owner,text:text.trim(),captured_at:new Date().toISOString(),time_zone:Intl.DateTimeFormat().resolvedOptions().timeZone,reply_to:lastTurnRef.current?.needs_clarification?lastTurnRef.current.id:undefined,channel:'capture'});
     setDraft('');setSheet(null);
+  }
+  async function sendAiMessage(text=aiDraft){
+    const owner=sessionRef.current?.user.id;if(!owner){setSheet('account');return;}
+    const message=text.trim();if(!message||message.length>30000)return;
+    setAiDraft('');setError('');
+    await queue({id:crypto.randomUUID(),user_id:owner,text:message,captured_at:new Date().toISOString(),time_zone:Intl.DateTimeFormat().resolvedOptions().timeZone,reply_to:aiHistory.at(-1)?.id,channel:'ai'});
   }
   actionRef.current=saveText;
   useEffect(()=>{
@@ -216,17 +230,17 @@ export default function Toolbox(){
       {signal:lifecycle.signal});}catch{}
     return()=>lifecycle.abort();
   },[]);
-  async function microphone(focusId?:string){
+  async function microphone(focusId?:string,channel:'capture'|'ai'='capture'){
     if(recording){if(recognition.current)recognition.current.stop();else recorder.current?.stop();return;}
     stopSpeaking();
     const owner=sessionRef.current?.user.id;
     if(!owner){setSheet('account');return;}
-    const conversation={reply_to:lastTurnRef.current?.id,focus_id:focusId};
+    const conversation={reply_to:channel==='ai'?aiHistory.at(-1)?.id:lastTurnRef.current?.needs_clarification?lastTurnRef.current.id:undefined,focus_id:focusId,channel};
     setStarting(true);setError('');
     const capturedAt=new Date().toISOString();
     const Recognition=(window as SpeechRecognitionWindow).SpeechRecognition??(window as SpeechRecognitionWindow).webkitSpeechRecognition;
     if(Recognition){
-      const startingDraft=reviewDraft.trim();reviewContext.current={captured_at:capturedAt,...conversation};
+      const startingDraft=(channel==='ai'?aiDraft:reviewDraft).trim();reviewContext.current={captured_at:capturedAt,...conversation};
       liveTranscriptRef.current=startingDraft;interimTranscriptRef.current='';setLiveTranscript(startingDraft);setInterimTranscript('');setReviewDraft('');setLiveWordsAvailable(true);setSeconds(0);
       const live=new Recognition();recognition.current=live;live.continuous=true;live.interimResults=true;live.lang='en-US';
       live.onresult=event=>{
@@ -241,11 +255,12 @@ export default function Toolbox(){
       live.onerror=()=>setLiveWordsAvailable(false);
       live.onend=()=>{
         recognition.current=null;if(recTimer.current)clearInterval(recTimer.current);setRecording(false);
-        const complete=appendSpeech(liveTranscriptRef.current,interimTranscriptRef.current);setReviewDraft(complete);setLiveTranscript(complete);setInterimTranscript('');interimTranscriptRef.current='';
+        const complete=appendSpeech(liveTranscriptRef.current,interimTranscriptRef.current);setLiveTranscript(complete);setInterimTranscript('');interimTranscriptRef.current='';
+        if(channel==='ai')setAiDraft(complete);else setReviewDraft(complete);
         if(!complete)setError('I didn’t catch any words. Tap the microphone and try again.');
       };
       try{
-        live.start();setRecording(true);setSheet(null);setSelected(null);setView('talk');
+        live.start();setRecording(true);setSheet(null);setSelected(null);setView(channel==='ai'?'ai':'talk');
         let elapsed=0;recTimer.current=setInterval(()=>{elapsed++;setSeconds(elapsed);if(elapsed>=300)live.stop();},1000);
       }catch{recognition.current=null;setLiveWordsAvailable(false);setError('The microphone could not start. Check Safari’s microphone permission and try again.');}
       finally{setStarting(false);}
@@ -270,7 +285,7 @@ export default function Toolbox(){
         catch(e){setError(errorText(e));}
       };
       setLiveWordsAvailable(false);
-      rec.start(1000);setRecording(true);setSheet(null);setSelected(null);setView('talk');
+      rec.start(1000);setRecording(true);setSheet(null);setSelected(null);setView(channel==='ai'?'ai':'talk');
       let elapsed=0;recTimer.current=setInterval(()=>{elapsed++;setSeconds(elapsed);if(elapsed>=300&&rec.state==='recording')rec.stop();},1000);
     }catch(e){stream?.getTracks().forEach(t=>t.stop());setError(e instanceof DOMException&&e.name==='NotAllowedError'?'Microphone access is off. Allow it in Safari’s website settings, or type your thought.':errorText(e));}
     finally{setStarting(false);}
@@ -289,7 +304,8 @@ export default function Toolbox(){
     try{
       const change:Change={id:Date.now()+'-'+crypto.randomUUID(),user_id:owner,item_id:item.id,status};
       await putLocal('changes',change);
-      const next=itemsRef.current.map(i=>i.id===item.id||i.parent_id===item.id?{...i,status}:i);
+      const completedAt=status==='completed'?new Date().toISOString():null;
+      const next=itemsRef.current.map(i=>i.id===item.id||i.parent_id===item.id?{...i,status,completed_at:completedAt}:i);
       updateItems(next);await putLocal('cache',{id:owner,items:next,lastTurn:lastTurnRef.current});await updatePending();
       setFeedback(status==='completed'?'One less thing to carry.':'Task reopened.');void sync();
     }catch(e){setError(errorText(e));}
@@ -336,11 +352,16 @@ export default function Toolbox(){
       if(error)throw error;setSubTitle('');await refresh();
     }catch(e){setError(errorText(e));}finally{setEditBusy(false);}
   }
+  async function openItem(item:Item){
+    const owner=sessionRef.current?.user.id,opened=new Date().toISOString();setSelected(item.id);
+    if(owner){const next=itemsRef.current.map(row=>row.id===item.id?{...row,last_opened_at:opened}:row);updateItems(next);await putLocal('cache',{id:owner,items:next,lastTurn:lastTurnRef.current}).catch(()=>{});}
+    if(clientRef.current&&navigator.onLine)void clientRef.current.from('items').update({last_opened_at:opened}).eq('id',item.id).eq('user_id',owner).then(({error})=>{if(error)setError('Could not update the opened time.');});
+  }
   function row(item:Item){
-    const due=dueLabel(item.due_at,item.due_date),subtasks=items.filter(i=>i.parent_id===item.id);
-    return <article className="item" key={item.id}>
+    const due=dueLabel(item.due_at,item.due_date),subtasks=items.filter(i=>i.parent_id===item.id),stale=view==='today'&&unopenedForDay(item);
+    return <article className={'item '+(stale?'stale-attention':'')} key={item.id}>
       {actionable(item)?<button className={'item-check '+(item.status==='completed'?'complete':'')} onClick={()=>void changeStatus(item)} aria-label={(item.status==='completed'?'Reopen ':'Complete ')+item.title}>{item.status==='completed'?<CheckCircle2/>:<Circle/>}</button>:<span className="item-check">{item.type==='note'?<FileText/>:<Bookmark/>}</span>}
-      <button className="item-body" onClick={()=>setSelected(item.id)}>
+      <button className="item-body" onClick={()=>void openItem(item)}>
         <div className="item-title">{item.title}</div>
         <div className="item-meta"><span>{item.area}</span><span aria-hidden>·</span>
           {due?<span className={dueTime(item)<Date.now()?'overdue':'due'}>{dueTime(item)<Date.now()?'Overdue · ':''}{due}</span>:<span>{actionable(item)?quadrant(item):item.type==='note'?'Note':'Reference'}</span>}
@@ -349,9 +370,14 @@ export default function Toolbox(){
       </button><ChevronRight size={17} className="muted" aria-hidden/>
     </article>;
   }
-  const focusItems=attention(items);
-  const areaItems=items.filter(i=>i.area===area&&i.status==='active'&&!i.parent_id).sort((a,b)=>b.created_at.localeCompare(a.created_at));
-  const completed=items.filter(i=>i.status==='completed'&&!i.parent_id).sort((a,b)=>b.updated_at.localeCompare(a.updated_at));
+  const personalItems=items.filter(i=>i.area!=='Work');
+  const focusItems=attention(personalItems);
+  const todayGroups=PERSONAL_AREAS.map(name=>({name,rows:focusItems.filter(item=>item.area===name)})).filter(group=>group.rows.length);
+  const areaItems=personalItems.filter(i=>i.area===area&&i.status==='active'&&!i.parent_id).sort((a,b)=>b.created_at.localeCompare(a.created_at));
+  const generalNotes=personalItems.filter(i=>i.status==='active'&&!i.parent_id&&(i.type==='note'||i.type==='reference')).sort((a,b)=>b.created_at.localeCompare(a.created_at));
+  const completed=personalItems.filter(i=>i.status==='completed'&&!i.parent_id).sort((a,b)=>Date.parse(completionMoment(b))-Date.parse(completionMoment(a)));
+  const completedFiltered=completed.filter(item=>!completedQuery.trim()||[item.title,item.content,item.area,item.type].join(' ').toLowerCase().includes(completedQuery.trim().toLowerCase()));
+  const completedGroups=[...completedFiltered.reduce((map,item)=>{const key=completionDayKey(item),group=map.get(key)??{key,label:completionDayLabel(item),rows:[] as Item[]};group.rows.push(item);map.set(key,group);return map;},new Map<string,{key:string;label:string;rows:Item[]}>()).values()];
   const pendingCount=pending.length+pendingChanges;
   const liveNotes=thoughtLines(recording?liveTranscript:reviewDraft,interimTranscript);
   const loginForm=<form className="stack" onSubmit={e=>void signIn(e)}>
@@ -376,20 +402,11 @@ export default function Toolbox(){
     </section>)}
     {pendingCount>0&&<button className="notice" style={{width:'100%',textAlign:'left'}} onClick={()=>setSheet('pending')}><CloudUpload/><span>{busy?'Organizing your thoughts…':pendingCount+' '+(pendingCount===1?'capture or change is':'captures or changes are')+' waiting to sync'}</span><ChevronRight size={17}/></button>}
     <div aria-live="polite" aria-atomic="true">{feedback&&<p className="feedback">{feedback}</p>}</div>
-    {lastTurn&&<div className="orbit-reply">
-      <button className={'orbit-button '+(orbitUnread?'unread':'')} aria-label={orbitUnread?'Orbit has something to say':'Open Orbit’s message'} aria-expanded={orbitOpen} onClick={()=>{setOrbitOpen(open=>!open);setOrbitUnread(false);}}>
-        <MessageCircle aria-hidden/>{orbitUnread&&<span className="orbit-dot" aria-hidden/>}
-      </button>
-      {orbitOpen&&<aside className={'assistant-bubble '+(lastTurn.needs_clarification?'question':'')} aria-label="Orbit’s message">
-        <button className="orbit-close" aria-label="Close Orbit’s message" onClick={()=>setOrbitOpen(false)}><X/></button>
-        <strong>{lastTurn.needs_clarification?'Orbit needs one detail':'Orbit'}</strong><p>{lastTurn.reply}</p>
-      </aside>}
-    </div>}
     <Tabs value={view} onValueChange={setView}>
       <TabsContent value="today">
         <section className="intro"><p className="eyebrow">{today||'Your space to think'}</p><h2>A little less on your mind.</h2></section>
         <section className="attention"><div className="section-heading"><h2>Needs your attention</h2>{focusItems.length>0&&<span className="muted">{focusItems.length} for now</span>}</div>
-          {!ready||loading&&!items.length?<p className="loading">Opening your toolbox…</p>:focusItems.length?<div className="item-list">{focusItems.map(row)}</div>:<div className="empty"><Sun/><h3>{session?'Nothing pressing right now.':'A clear place to start.'}</h3><p>{session?'Put down a thought whenever it comes. We’ll keep the rest out of your way.':'Sign in once to keep your thoughts private and available on your devices.'}</p>{!session&&<Button variant="ghost" onClick={()=>setSheet('account')}>Sign in<ChevronRight/></Button>}</div>}
+          {!ready||loading&&!items.length?<p className="loading">Opening your toolbox…</p>:todayGroups.length?<div className="today-area-grid">{todayGroups.map(group=>{const Icon=areaIcons[group.name];return <section className="today-area-card" key={group.name}><div className="today-area-heading"><Icon/><div><h3>{group.name}</h3><span>{group.rows.length} {group.rows.length===1?'item':'items'}</span></div></div><div className="item-list">{group.rows.map(row)}</div></section>})}</div>:<div className="empty"><Sun/><h3>{session?'Nothing pressing right now.':'A clear place to start.'}</h3><p>{session?'Put down a thought whenever it comes. We’ll keep the rest out of your way.':'Sign in once to keep your thoughts private and available on your devices.'}</p>{!session&&<Button variant="ghost" onClick={()=>setSheet('account')}>Sign in<ChevronRight/></Button>}</div>}
           <p className="quiet-note">Only what matters now. Everything else has a place.</p>
         </section>
       </TabsContent>
@@ -409,17 +426,19 @@ export default function Toolbox(){
           {!liveWordsAvailable&&recording&&<p className="muted">I’m still listening. Tap to review the recording when you finish.</p>}
           {recording?<p className="live-hint">If something is wrong, keep talking and correct it. Nothing is saved until you tap Done.</p>:<div className="review-actions"><Button onClick={()=>void approveReview()} disabled={!reviewDraft.trim()||busy}><Check/>Done</Button><Button variant="outline" onClick={()=>void microphone()} disabled={starting||busy}><Mic/>Keep talking</Button></div>}
         </section>}
-        {!recording&&!reviewDraft&&<p className="quiet-note">When Orbit has something to say, a message indicator will appear in the corner.</p>}
+        {!recording&&!reviewDraft&&<p className="quiet-note">Use Talk to put something away. Use AI when you want an actual conversation.</p>}
       </TabsContent>
       <TabsContent value="areas">
         <section className="intro"><p className="eyebrow">Safely put away</p><h2>{area||'Everything has a place.'}</h2><p className="muted">{area?'Tasks, notes, and references for '+area.toLowerCase()+'.':'Find something when you need it.'}</p></section>
-        {area?<><Button variant="ghost" onClick={()=>setArea(null)}><ArrowLeft/>All areas</Button><div className="item-list" style={{marginTop:16}}>{areaItems.slice(0,limit).map(row)}</div>{!areaItems.length&&<div className="empty"><Folder/><h3>Room for your {area.toLowerCase()} thoughts.</h3><p>Speak naturally. We’ll file the right things here.</p></div>}{areaItems.length>limit&&<Button variant="ghost" onClick={()=>setLimit(limit+25)}>Show 25 more</Button>}</>:<div className="area-grid">{AREAS.map(name=>{const Icon=areaIcons[name],count=items.filter(i=>i.area===name&&i.status==='active'&&!i.parent_id).length;return <button key={name} className="area-button" onClick={()=>setArea(name)}><Icon/><span>{name}<small>{count} {count===1?'item':'items'}</small></span></button>;})}</div>}
+        {area?<><Button variant="ghost" onClick={()=>setArea(null)}><ArrowLeft/>All areas</Button><div className="item-list" style={{marginTop:16}}>{areaItems.slice(0,limit).map(row)}</div>{!areaItems.length&&<div className="empty"><Folder/><h3>Room for your {area.toLowerCase()} thoughts.</h3><p>Speak naturally. We’ll file the right things here.</p></div>}{areaItems.length>limit&&<Button variant="ghost" onClick={()=>setLimit(limit+25)}>Show 25 more</Button>}</>:<><button className="general-notes-card" onClick={()=>setView('notes')}><StickyNote/><span><strong>General Notes</strong><small>{generalNotes.length} saved for later</small></span><ChevronRight/></button><div className="area-grid">{PERSONAL_AREAS.map(name=>{const Icon=areaIcons[name],count=personalItems.filter(i=>i.area===name&&i.status==='active'&&!i.parent_id).length;return <button key={name} className="area-button" onClick={()=>setArea(name)}><Icon/><span>{name}<small>{count} {count===1?'item':'items'}</small></span></button>;})}</div></>}
       </TabsContent>
-      <TabsContent value="completed"><section className="intro"><p className="eyebrow">Off your plate</p><h2>Done and dusted.</h2><p className="muted">A little space to notice what you’ve finished.</p></section>
-        <div className="item-list">{completed.slice(0,limit).map(row)}</div>{!completed.length&&<div className="empty"><CheckCheck/><h3>Your finished tasks will land here.</h3><p>One small thing at a time.</p></div>}
-        {completed.length>limit&&<Button variant="ghost" onClick={()=>setLimit(limit+25)}>Show 25 more</Button>}
+      <TabsContent value="notes"><section className="intro"><p className="eyebrow">Keep without carrying</p><h2>General Notes</h2><p className="muted">Not a to-do. Just things that may matter later.</p></section><Button variant="ghost" onClick={()=>setView('areas')}><ArrowLeft/>Back to Areas</Button><div className="item-list" style={{marginTop:16}}>{generalNotes.slice(0,limit).map(row)}</div>{!generalNotes.length&&<div className="empty"><StickyNote/><h3>Nothing waiting here.</h3><p>Notes and references that are not actions will collect here automatically.</p></div>}{generalNotes.length>limit&&<Button variant="ghost" onClick={()=>setLimit(limit+25)}>Show 25 more</Button>}</TabsContent>
+      <TabsContent value="completed"><section className="intro"><p className="eyebrow">Off your plate</p><h2>Done and dusted.</h2><p className="muted">Finished items, organized by when you finished them.</p></section><label className="completed-search"><Search/><Input aria-label="Search completed items" placeholder="Search finished items…" value={completedQuery} onChange={e=>setCompletedQuery(e.target.value)}/></label>
+        {completedGroups.slice(0,limit).map((group,index)=><details className="completed-day" key={group.key} open={index===0}><summary><span>{group.label}</span><small>{group.rows.length} {group.rows.length===1?'item':'items'}</small></summary><div className="item-list">{group.rows.map(row)}</div></details>)}{!completedFiltered.length&&<div className="empty"><CheckCheck/><h3>{completed.length?'No finished items match that search.':'Your finished tasks will land here.'}</h3><p>{completed.length?'Try a different word.':'One small thing at a time.'}</p></div>}
+        {completedGroups.length>limit&&<Button variant="ghost" onClick={()=>setLimit(limit+25)}>Show more dates</Button>}
       </TabsContent>
-      <nav className="bottom-nav" aria-label="Main navigation"><TabsList><TabsTrigger value="today"><Sun/>Today</TabsTrigger><TabsTrigger value="talk"><Mic/>Talk</TabsTrigger><TabsTrigger value="areas"><Layers/>Areas</TabsTrigger><TabsTrigger value="completed"><CheckCheck/>Completed</TabsTrigger></TabsList></nav>
+      <TabsContent value="ai"><section className="intro"><p className="eyebrow">Ask, plan, think out loud</p><h2>AI</h2><p className="muted">Have a conversation here. Type or use your voice.</p></section><section className="ai-panel"><div className="ai-thread">{aiHistory.map(turn=><div className="ai-exchange" key={turn.id}><div className="ai-user"><span>You</span><p>{turn.source_text}</p></div>{turn.turn_result?.reply&&<div className={'ai-orbit '+(turn.turn_result.needs_clarification?'question':'')}><span>{turn.turn_result.needs_clarification?'Orbit needs one detail':'Orbit'}</span><p>{turn.turn_result.reply}</p></div>}</div>)}{pending.filter(capture=>capture.channel==='ai').map(capture=><div className="ai-user pending" key={capture.id}><span>You · sending</span><p>{capture.text||'Voice message waiting to process'}</p></div>)}{!aiHistory.length&&!pending.some(capture=>capture.channel==='ai')&&<div className="empty"><MessageSquareText/><h3>Start a conversation.</h3><p>Ask a question, think through a plan, or talk something out.</p></div>}</div>{recording&&view==='ai'&&<div className="ai-live"><p>{liveTranscript}{interimTranscript&&<span> {interimTranscript}</span>}</p><Button type="button" variant="outline" onClick={()=>void microphone(undefined,'ai')}><Square fill="currentColor"/>Stop</Button></div>}<form className="ai-compose" onSubmit={e=>{e.preventDefault();void sendAiMessage().catch(e=>setError(errorText(e)));}}><Textarea aria-label="Message Orbit" placeholder="Message Orbit…" value={aiDraft} onChange={e=>setAiDraft(e.target.value)} maxLength={30000} disabled={recording}/><div><Button type="button" variant="outline" onClick={()=>void microphone(undefined,'ai')} disabled={starting||busy&&!recording}>{starting?<LoaderCircle className="spinning"/>:<Mic/>}{recording?'Stop':'Voice'}</Button><Button type="submit" disabled={!aiDraft.trim()||busy||recording}>Send</Button></div></form></section></TabsContent>
+      <nav className="bottom-nav" aria-label="Main navigation"><TabsList><TabsTrigger value="today"><Sun/>Today</TabsTrigger><TabsTrigger value="talk"><Mic/>Talk</TabsTrigger><TabsTrigger value="areas"><Layers/>Areas</TabsTrigger><TabsTrigger value="completed"><CheckCheck/>Done</TabsTrigger><TabsTrigger value="ai"><MessageSquareText/>AI</TabsTrigger></TabsList></nav>
     </Tabs>
     <Sheet open={sheet!==null} onOpenChange={open=>{if(!open)setSheet(null);}}>
       <SheetContent side="bottom" className="detail-sheet">
@@ -430,7 +449,7 @@ export default function Toolbox(){
           <Button type="submit" disabled={!draft.trim()||busy}><Check/>Send to Toolbox</Button>
         </form>}
         {sheet==='pending'&&<div className="stack">
-          {pending.map(p=><div key={p.id} className="auth-card" style={{marginTop:0,padding:16}}><h3>{p.audio?'Voice capture':'Written capture'}</h3><p className="muted">{new Date(p.captured_at).toLocaleString()}</p>{p.text&&<p className="detail-content" style={{marginTop:8}}>{p.text}</p>}{p.audio&&<AudioPlayback blob={p.audio}/>}<CaptureDownload capture={p}/><p className="muted" style={{marginTop:10,fontSize:'.9rem'}}>{p.error||'Waiting to organize.'}</p></div>)}
+          {pending.map(p=><div key={p.id} className="auth-card" style={{marginTop:0,padding:16}}><h3>{p.channel==='ai'?'AI message':p.audio?'Voice capture':'Written capture'}</h3><p className="muted">{new Date(p.captured_at).toLocaleString()}</p>{p.text&&<p className="detail-content" style={{marginTop:8}}>{p.text}</p>}{p.audio&&<AudioPlayback blob={p.audio}/>}<CaptureDownload capture={p}/><p className="muted" style={{marginTop:10,fontSize:'.9rem'}}>{p.error||'Waiting to organize.'}</p></div>)}
           {pendingChanges>0&&<p>{pendingChanges} task changes waiting to sync.</p>}
           <Button disabled={busy||!online} onClick={()=>void sync()}>{busy?<LoaderCircle className="spinning"/>:<CloudUpload/>}{busy?'Processing…':'Retry now'}</Button>
         </div>}
@@ -451,7 +470,7 @@ export default function Toolbox(){
         {current&&(editing?<form className="stack" onSubmit={e=>void saveEdit(e)}>
           <label><span className="field-label">Title</span><Input required maxLength={180} value={editTitle} onChange={e=>setEditTitle(e.target.value)}/></label>
           <label><span className="field-label">Details</span><Textarea maxLength={12000} value={editContent} onChange={e=>setEditContent(e.target.value)}/></label>
-          <div className="form-grid"><div><span className="field-label">Area</span><Select value={editArea} onValueChange={v=>setEditArea(v as Area)}><SelectTrigger aria-label="Area"><SelectValue/></SelectTrigger><SelectContent>{AREAS.map(a=><SelectItem key={a} value={a}>{a}</SelectItem>)}</SelectContent></Select></div>
+          <div className="form-grid"><div><span className="field-label">Area</span><Select value={editArea} onValueChange={v=>setEditArea(v as Area)}><SelectTrigger aria-label="Area"><SelectValue/></SelectTrigger><SelectContent>{PERSONAL_AREAS.map(a=><SelectItem key={a} value={a}>{a}</SelectItem>)}</SelectContent></Select></div>
             <div><span className="field-label">Type</span><Select value={editType} disabled={!!current.parent_id||items.some(i=>i.parent_id===current.id)} onValueChange={v=>setEditType(v as ItemType)}><SelectTrigger aria-label="Type"><SelectValue/></SelectTrigger><SelectContent>{['task','reminder','note','reference'].map(t=><SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div></div>
           {(editType==='task'||editType==='reminder')&&<><label><span className="field-label">Due day</span><Input type="date" value={editDate.split('T')[0]} onChange={e=>setEditDate(e.target.value?(e.target.value+(editDate.includes('T')?'T'+editDate.split('T')[1]:'')):'')}/></label><label><span className="field-label">Time (optional, your local time)</span><Input type="time" disabled={!editDate} value={editDate.split('T')[1]||''} onChange={e=>setEditDate(editDate.split('T')[0]+(e.target.value?'T'+e.target.value:''))}/></label><div className="form-grid">
             <Score label="Importance" value={editImportance} onChange={setEditImportance}/><Score label="Urgency" value={editUrgency} onChange={setEditUrgency}/></div></>}
@@ -461,7 +480,7 @@ export default function Toolbox(){
           {(current.due_at||current.due_date)&&<p className="due">{dueLabel(current.due_at,current.due_date)}</p>}
           <Button variant="outline" disabled={busy||recording||starting} onClick={()=>void microphone(current.id)}><Mic/>Talk about this item</Button>
           {actionable(current)&&<Button onClick={()=>void changeStatus(current)}>{current.status==='completed'?'Reopen task':'Mark complete'}<Check/></Button>}
-          {items.some(i=>i.parent_id===current.id)&&<div className="item-list">{items.filter(i=>i.parent_id===current.id).map(row)}</div>}
+          {items.some(i=>i.parent_id===current.id)&&<section className="connected-steps"><div className="section-heading"><h3>Connected steps</h3><span className="muted">In a useful order</span></div><div className="item-list">{items.filter(i=>i.parent_id===current.id).map(row)}</div></section>}
           {current.type==='task'&&!current.parent_id&&current.status==='active'&&<form onSubmit={e=>void addSubtask(e)} style={{display:'flex',gap:8}}><Input aria-label="New subtask" placeholder="Add a small step…" value={subTitle} maxLength={180} onChange={e=>setSubTitle(e.target.value)}/><Button type="submit" variant="outline" disabled={editBusy||!online||!subTitle.trim()}>Add</Button></form>}
           <Button variant="outline" onClick={()=>edit(current)}><PenLine/>Edit details</Button>
           {current.source_text&&<details><summary className="muted">Original capture</summary><p className="detail-source">{current.source_text}</p></details>}
