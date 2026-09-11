@@ -11,6 +11,8 @@ where type<>'capture' and status='completed' and completed_at is null;
 update public.items
 set last_opened_at=coalesce(last_opened_at,created_at)
 where type<>'capture' and last_opened_at is null;
+-- Flush deferred self-reference checks before changing trigger state again.
+set constraints all immediate;
 alter table public.items enable trigger toolbox_touch;
 
 create index if not exists items_owner_completed_at
