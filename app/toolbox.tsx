@@ -1,7 +1,7 @@
 'use client';
 import {useCallback,useEffect,useRef,useState} from 'react';
 import type {Session,SupabaseClient} from '@supabase/supabase-js';
-import {Mic,Square,PenLine,Sun,Layers,CheckCheck,BriefcaseBusiness,House,Wallet,UserRound,Users,Folder,Lightbulb,Inbox,Check,CheckCircle2,Circle,ChevronRight,ArrowLeft,WifiOff,LoaderCircle,Settings2,FileText,Bookmark,CloudUpload,LogOut,ShieldCheck,Box,Volume2} from 'lucide-react';
+import {Mic,Square,PenLine,Sun,Layers,CheckCheck,BriefcaseBusiness,House,Wallet,UserRound,Users,Folder,Lightbulb,Inbox,Check,CheckCircle2,Circle,ChevronRight,ArrowLeft,WifiOff,LoaderCircle,Settings2,FileText,Bookmark,CloudUpload,LogOut,ShieldCheck,Box} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
@@ -46,8 +46,8 @@ export default function Toolbox(){
   const spokenTurns=useRef(new Set<string>());
 
   const updateItems=useCallback((next:Item[])=>{itemsRef.current=next;setItems(next);},[]);
-  const speakTurn=useCallback((turn:AssistantTurn,repeat=false)=>{
-    if(!repeat&&spokenTurns.current.has(turn.id))return;
+  const speakTurn=useCallback((turn:AssistantTurn)=>{
+    if(spokenTurns.current.has(turn.id))return;
     if(speakReply(turn.reply))spokenTurns.current.add(turn.id);
   },[]);
   const updatePending=useCallback(async()=>{
@@ -236,7 +236,7 @@ export default function Toolbox(){
         try{await queue({id:crypto.randomUUID(),user_id:owner,audio,captured_at:capturedAt,time_zone:Intl.DateTimeFormat().resolvedOptions().timeZone,...conversation});}
         catch(e){setError(errorText(e));}
       };
-      rec.start(1000);setRecording(true);setSheet(null);setSelected(null);setView('today');
+      rec.start(1000);setRecording(true);setSheet(null);setSelected(null);setView('talk');
       let elapsed=0;recTimer.current=setInterval(()=>{elapsed++;setSeconds(elapsed);if(elapsed>=300&&rec.state==='recording')rec.stop();},1000);
     }catch(e){stream?.getTracks().forEach(t=>t.stop());setError(e instanceof DOMException&&e.name==='NotAllowedError'?'Microphone access is off. Allow it in Safari’s website settings, or type your thought.':errorText(e));}
     finally{setStarting(false);}
@@ -333,16 +333,19 @@ export default function Toolbox(){
     </section>)}
     {pendingCount>0&&<button className="notice" style={{width:'100%',textAlign:'left'}} onClick={()=>setSheet('pending')}><CloudUpload/><span>{busy?'Organizing your thoughts…':pendingCount+' '+(pendingCount===1?'capture or change is':'captures or changes are')+' waiting to sync'}</span><ChevronRight size={17}/></button>}
     <div aria-live="polite" aria-atomic="true">{feedback&&<p className="feedback">{feedback}</p>}</div>
-    {lastTurn&&<section className="auth-card stack" aria-label="Toolbox reply" aria-live="polite" style={{marginTop:16}}>
-      <h2>{lastTurn.needs_clarification?'One detail before I change anything':'Toolbox'}</h2><p>{lastTurn.reply}</p>
-      <Button variant="outline" onClick={()=>speakTurn(lastTurn,true)}><Volume2/>Hear reply again</Button>
-      {lastTurn.item_ids.slice(0,8).map(id=>items.find(item=>item.id===id)).filter((item):item is Item=>!!item).map(item=><Button key={item.id} variant="outline" style={{height:'auto',whiteSpace:'normal',justifyContent:'flex-start',textAlign:'left'}} onClick={()=>setSelected(item.id)}>{item.title} · {item.status==='completed'?'Completed':dueLabel(item.due_at,item.due_date)||'Saved'}</Button>)}
-      {lastTurn.item_ids.length>8&&<p className="muted">All {lastTurn.item_ids.length} affected items are available in Areas and Completed.</p>}
-      <p className="muted">Use the microphone below to reply, make a correction, or tell me what you finished.</p>
-    </section>}
+    {lastTurn&&<aside className={'assistant-bubble '+(lastTurn.needs_clarification?'question':'')} aria-label="Toolbox reply" aria-live="polite">
+      <strong>{lastTurn.needs_clarification?'One detail':'Toolbox'}</strong><p>{lastTurn.reply}</p>
+    </aside>}
     <Tabs value={view} onValueChange={setView}>
       <TabsContent value="today">
         <section className="intro"><p className="eyebrow">{today||'Your space to think'}</p><h2>A little less on your mind.</h2></section>
+        <section className="attention"><div className="section-heading"><h2>Needs your attention</h2>{focusItems.length>0&&<span className="muted">{focusItems.length} for now</span>}</div>
+          {!ready||loading&&!items.length?<p className="loading">Opening your toolbox…</p>:focusItems.length?<div className="item-list">{focusItems.map(row)}</div>:<div className="empty"><Sun/><h3>{session?'Nothing pressing right now.':'A clear place to start.'}</h3><p>{session?'Put down a thought whenever it comes. We’ll keep the rest out of your way.':'Sign in once to keep your thoughts private and available on your devices.'}</p>{!session&&<Button variant="ghost" onClick={()=>setSheet('account')}>Sign in<ChevronRight/></Button>}</div>}
+          <p className="quiet-note">Only what matters now. Everything else has a place.</p>
+        </section>
+      </TabsContent>
+      <TabsContent value="talk">
+        <section className="intro"><p className="eyebrow">Your voice space</p><h2>Say what’s on your mind.</h2></section>
         <section className="capture-card" aria-label="Capture a thought">
           <h2>{recording?'I’m listening.':'Talk to your toolbox.'}</h2><p>{recording?'Take your time. Tap when you’re done.':'Share an idea, adjust a reminder, or tell me what you got done.'}</p>
           <Button className={'mic-button '+(recording?'recording':'')} onClick={()=>void microphone()} disabled={starting||!ready||busy&&!recording} aria-label={recording?'Stop recording and save':'Start voice capture'}>
@@ -351,10 +354,7 @@ export default function Toolbox(){
           <div className="capture-label" aria-live="polite">{recording?Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0')+' · Tap to finish':'Tap to talk'}</div>
           <div className="capture-secondary"><Button variant="ghost" disabled={recording} onClick={()=>setSheet(session?'write':'account')}><PenLine/>Or type a thought</Button></div>
         </section>
-        <section className="attention"><div className="section-heading"><h2>Needs your attention</h2>{focusItems.length>0&&<span className="muted">{focusItems.length} for now</span>}</div>
-          {!ready||loading&&!items.length?<p className="loading">Opening your toolbox…</p>:focusItems.length?<div className="item-list">{focusItems.map(row)}</div>:<div className="empty"><Sun/><h3>{session?'Nothing pressing right now.':'A clear place to start.'}</h3><p>{session?'Put down a thought whenever it comes. We’ll keep the rest out of your way.':'Sign in once to keep your thoughts private and available on your devices.'}</p>{!session&&<Button variant="ghost" onClick={()=>setSheet('account')}>Sign in<ChevronRight/></Button>}</div>}
-          <p className="quiet-note">Only what matters now. Everything else has a place.</p>
-        </section>
+        <p className="quiet-note">Your reply will appear in the corner and play aloud.</p>
       </TabsContent>
       <TabsContent value="areas">
         <section className="intro"><p className="eyebrow">Safely put away</p><h2>{area||'Everything has a place.'}</h2><p className="muted">{area?'Tasks, notes, and references for '+area.toLowerCase()+'.':'Find something when you need it.'}</p></section>
@@ -364,7 +364,7 @@ export default function Toolbox(){
         <div className="item-list">{completed.slice(0,limit).map(row)}</div>{!completed.length&&<div className="empty"><CheckCheck/><h3>Your finished tasks will land here.</h3><p>One small thing at a time.</p></div>}
         {completed.length>limit&&<Button variant="ghost" onClick={()=>setLimit(limit+25)}>Show 25 more</Button>}
       </TabsContent>
-      <nav className="bottom-nav" aria-label="Main navigation"><TabsList><TabsTrigger value="today"><Sun/>Today</TabsTrigger><TabsTrigger value="areas"><Layers/>Areas</TabsTrigger><TabsTrigger value="completed"><CheckCheck/>Completed</TabsTrigger></TabsList></nav>
+      <nav className="bottom-nav" aria-label="Main navigation"><TabsList><TabsTrigger value="today"><Sun/>Today</TabsTrigger><TabsTrigger value="talk"><Mic/>Talk</TabsTrigger><TabsTrigger value="areas"><Layers/>Areas</TabsTrigger><TabsTrigger value="completed"><CheckCheck/>Completed</TabsTrigger></TabsList></nav>
     </Tabs>
     <Sheet open={sheet!==null} onOpenChange={open=>{if(!open)setSheet(null);}}>
       <SheetContent side="bottom" className="detail-sheet">
