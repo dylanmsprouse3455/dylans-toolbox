@@ -1,5 +1,22 @@
 import {z} from 'zod';
 
+const matchConfidence=z.enum(['high','medium','low']);
+const answerStatus=z.enum(['found','partial','historical_only','capture_only','missing_fact','not_seen']);
+
+const factChange=z.object({
+  action:z.enum(['upsert','remove']),
+  key:z.string().min(1).max(80),
+  value:z.string().min(1).max(1000),
+  aliases:z.array(z.string().min(1).max(300)).max(12),
+  confidence:matchConfidence,
+}).strict();
+
+const ruleSuggestion=z.object({
+  rule_key:z.string().min(1).max(120),
+  rule_text:z.string().min(1).max(2000),
+  reason:z.string().min(1).max(1000),
+}).strict();
+
 export const workProposal=z.object({
   case_id:z.string().uuid().nullable(),
   expected_updated_at:z.string().datetime({offset:true}).nullable(),
@@ -11,19 +28,31 @@ export const workProposal=z.object({
   ball_with:z.string().max(180).nullable(),
   current_situation:z.string().max(4000),
   next_action:z.string().max(1000),
+  memory_summary:z.string().max(5000),
   follow_up_at:z.string().datetime({offset:true}).nullable(),
   follow_up_date:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  follow_up_condition:z.string().max(1000).nullable(),
   closing_date:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
   event_kind:z.enum(['request','response','action','status','note','follow_up','completion']),
   event_summary:z.string().min(1).max(2000),
+  evidence_excerpt:z.string().min(1).max(2000),
+  match_confidence:matchConfidence,
+  match_reason:z.string().min(1).max(1000),
+  fact_changes:z.array(factChange).max(30),
   confirmation_question:z.string().min(1).max(800),
 }).strict();
 
 export const workPreview=z.object({
-  kind:z.enum(['changes','answer']),headline:z.string().max(500),answer:z.string().max(4000).nullable(),commit_reply:z.string().max(1000),proposals:z.array(workProposal).max(20),
+  kind:z.enum(['changes','answer']),
+  headline:z.string().max(500),
+  answer:z.string().max(4000).nullable(),
+  answer_status:answerStatus.nullable(),
+  commit_reply:z.string().max(1000),
+  proposals:z.array(workProposal).max(20),
+  rule_suggestions:z.array(ruleSuggestion).max(3),
 }).strict().superRefine((value,ctx)=>{
-  if(value.kind==='answer'&&(value.answer===null||value.proposals.length))ctx.addIssue({code:z.ZodIssueCode.custom,message:'Answers cannot include changes.'});
-  if(value.kind==='changes'&&(value.answer!==null||value.proposals.length===0))ctx.addIssue({code:z.ZodIssueCode.custom,message:'Changes require proposals and no answer.'});
+  if(value.kind==='answer'&&(value.answer===null||value.answer_status===null||value.proposals.length))ctx.addIssue({code:z.ZodIssueCode.custom,message:'Answers need text/status and cannot include changes.'});
+  if(value.kind==='changes'&&(value.answer!==null||value.answer_status!==null||value.proposals.length===0))ctx.addIssue({code:z.ZodIssueCode.custom,message:'Changes require proposals and no answer/status.'});
   for(const proposal of value.proposals){
     if(proposal.follow_up_at&&proposal.follow_up_date)ctx.addIssue({code:z.ZodIssueCode.custom,message:'Only one follow-up date kind is allowed.'});
     if(proposal.case_id===null&&proposal.expected_updated_at!==null)ctx.addIssue({code:z.ZodIssueCode.custom,message:'New cases cannot have an expected version.'});
@@ -32,41 +61,61 @@ export const workPreview=z.object({
 });
 
 const nullableString={type:['string','null']} as const;
-const proposalProperties={case_id:{type:['string','null']},expected_updated_at:{type:['string','null']},case_number:{type:['string','null'],pattern:'^G[0-9]{2}-[0-9]{4}$'},title:{type:'string'},status:{type:'string',enum:['active','completed']},workflow_state:{type:'string',enum:['todo','waiting','watching','follow_up']},ball_owner:{type:'string',enum:['me','other','watching','none']},ball_with:nullableString,current_situation:{type:'string'},next_action:{type:'string'},follow_up_at:nullableString,follow_up_date:{type:['string','null'],pattern:'^\\d{4}-\\d{2}-\\d{2}$'},closing_date:{type:['string','null'],pattern:'^\\d{4}-\\d{2}-\\d{2}$'},event_kind:{type:'string',enum:['request','response','action','status','note','follow_up','completion']},event_summary:{type:'string'},confirmation_question:{type:'string'}};
-export const workPreviewOutputSchema={type:'object',additionalProperties:false,required:['kind','headline','answer','commit_reply','proposals'],properties:{kind:{type:'string',enum:['changes','answer']},headline:{type:'string'},answer:{type:['string','null']},commit_reply:{type:'string'},proposals:{type:'array',items:{type:'object',additionalProperties:false,required:Object.keys(proposalProperties),properties:proposalProperties}}}};
+const factChangeProperties={action:{type:'string',enum:['upsert','remove']},key:{type:'string'},value:{type:'string'},aliases:{type:'array',items:{type:'string'}},confidence:{type:'string',enum:['high','medium','low']}};
+const ruleSuggestionProperties={rule_key:{type:'string'},rule_text:{type:'string'},reason:{type:'string'}};
+const proposalProperties={
+  case_id:{type:['string','null']},expected_updated_at:{type:['string','null']},case_number:{type:['string','null'],pattern:'^G[0-9]{2}-[0-9]{4}$'},title:{type:'string'},
+  status:{type:'string',enum:['active','completed']},workflow_state:{type:'string',enum:['todo','waiting','watching','follow_up']},ball_owner:{type:'string',enum:['me','other','watching','none']},ball_with:nullableString,
+  current_situation:{type:'string'},next_action:{type:'string'},memory_summary:{type:'string'},follow_up_at:nullableString,follow_up_date:{type:['string','null'],pattern:'^\\d{4}-\\d{2}-\\d{2}$'},follow_up_condition:nullableString,closing_date:{type:['string','null'],pattern:'^\\d{4}-\\d{2}-\\d{2}$'},
+  event_kind:{type:'string',enum:['request','response','action','status','note','follow_up','completion']},event_summary:{type:'string'},evidence_excerpt:{type:'string'},match_confidence:{type:'string',enum:['high','medium','low']},match_reason:{type:'string'},
+  fact_changes:{type:'array',items:{type:'object',additionalProperties:false,required:Object.keys(factChangeProperties),properties:factChangeProperties}},confirmation_question:{type:'string'},
+};
 
-export function workPreviewInstructions(capturedAt:string,timeZone:string){
+export const workPreviewOutputSchema={
+  type:'object',additionalProperties:false,required:['kind','headline','answer','answer_status','commit_reply','proposals','rule_suggestions'],
+  properties:{
+    kind:{type:'string',enum:['changes','answer']},headline:{type:'string'},answer:{type:['string','null']},answer_status:{type:['string','null'],enum:['found','partial','historical_only','capture_only','missing_fact','not_seen',null]},commit_reply:{type:'string'},
+    proposals:{type:'array',items:{type:'object',additionalProperties:false,required:Object.keys(proposalProperties),properties:proposalProperties}},
+    rule_suggestions:{type:'array',items:{type:'object',additionalProperties:false,required:Object.keys(ruleSuggestionProperties),properties:ruleSuggestionProperties}},
+  },
+};
+
+export function workPreviewInstructions(capturedAt:string,timeZone:string,approvedRules:string[]=[]){
+  const rules=approvedRules.length?'APPROVED WORK RULES — user-confirmed and authoritative:\n'+approvedRules.map((rule,index)=>`${index+1}. ${rule}`).join('\n'):'APPROVED WORK RULES: none yet.';
   return [
-    'You are Orbit inside Dylan’s private Work toolbox. Your job is to interpret natural spoken work updates into a reviewable draft. NOTHING you propose is final until Dylan confirms it in the wizard.',
-    'The core model is: File or case -> current situation -> who has the ball -> next action -> when to care again. Use that model for every proposed change.',
-    'CONTEXT IS FILE-SPECIFIC. Each existing_cases object may include history for that exact file. priority_case_history contains deeper history for explicitly named or focused files. matched_history contains timeline hits found by words such as an address, person, or prior action. matched_prior_captures contains earlier Work speech/text that matched the current wording, including captures that never became a saved case.',
-    'SEARCH BEFORE SAYING NOT FOUND. A file can be active OR completed. Before saying there is no case/file/record, inspect existing_cases, their history, matched_history, priority_case_history, and matched_prior_captures. If prior capture text exists but it was never committed to a case, say that accurately instead of saying the user never mentioned it.',
-    'Evidence hierarchy: an explicit case number in the CURRENT utterance is strongest; then exact matching case/timeline history; then matching prior captures; focused_case_id is only conversational context; broad recent turns are weakest. A focused file must NEVER override a clearly different case number, address, person, or property stated in the current utterance.',
-    'If focused_case_id conflicts with identifiers in the current utterance, do not force the new update onto the focused case. Search for the newly stated file. If identity is still unclear, make that uncertainty explicit in the confirmation question instead of confidently attaching it to the focused file.',
-    'A prior capture is evidence of what Dylan said before, but not proof that it was saved. If its result is work_commit with case_ids, those IDs are authoritative links. If it was only a work_answer or failed draft, use the wording as memory but do not pretend a saved case exists.',
-    'Treat the case record and its timeline as one continuous memory. A completed file is NOT a blank slate. If Dylan reopens it, continue the same case_id and use its prior timeline to understand what the file was, what was completed, and what changed now.',
-    'REOPENING RULE: reopen/open this back up/active again/we need this file again means status=active on the existing case when identity matches. Never create a second case with the same case number merely because the prior one was completed.',
-    'When reopening, do not replace meaningful prior context with only “file reopened.” Reconstruct the current situation from the new update plus relevant history. Completed prior steps remain historical facts unless Dylan says they were undone.',
-    'If Dylan says it is a different situation, treat that as a new phase of the SAME case when the case number/context matches. Keep the old phase in the timeline and describe the new phase as current.',
-    'INTENT RULE: “I need to call/text/email/get/find/pull/look up/order/upload/scan/send...” is a WORK ACTION and should normally produce kind=changes, not kind=answer. Example: “I need to pull that file and get Christopher’s phone number” means a To Do action. Only return kind=answer when Dylan is actually asking Orbit for information, such as “What is Christopher’s phone number?” or “Do you have his number?”',
-    'If a current action refers to an address/person that appears in prior capture memory but no saved case can be linked confidently, propose a reviewable standalone/new Work item using the known address/person and make the missing case-number link explicit in confirmation_question. Do not discard the action just because the file association is incomplete.',
-    'If the user is asking a question about existing Work information, return kind=answer, a direct answer, and an empty proposals array. Questions include “where are we on this?”, “what needs me right now?”, “what am I waiting on?”, and requests to brief or summarize a file.',
-    'If the user reports work that should change records, return kind=changes and one proposal per distinct file or standalone work matter. A single ramble can update multiple files.',
-    'Case numbers use canonical GYY-NNNN format. Input has already been normalized when the digits were clear. Never invent or alter a digit. If a case number remains unclear, state the uncertainty in confirmation_question rather than guessing.',
-    'Match an existing case whenever the case number or context clearly identifies it. For an existing case copy case_id and exact updated_at into expected_updated_at. For a genuinely new case set both to null. Do not create a duplicate merely because wording changed.',
-    'For updates, output the COMPLETE desired case state. Preserve every existing field the user did not change, including title, case number, closing date, and follow-up. Null means final value empty, not unchanged.',
-    'Workflow states: todo means Dylan has an action; waiting means Dylan already asked/sent/ordered something and the next move belongs to someone else; watching means no immediate action but monitor; follow_up means Dylan’s next action is specifically to circle back later.',
-    'Ball ownership: me means Dylan must act; other means another person/organization has the next move; watching means monitor; none is reserved for completed matters. Put a name in ball_with only when supported by current or stored context.',
-    'If Dylan is waiting on someone and gives a follow-up date, keep workflow_state=waiting and ball_owner=other, with that follow-up date/time.',
-    'Do not invent clock times. Date only -> follow_up_date. Explicit date and time -> follow_up_at with correct offset. Resolve relative dates from captured_at in the supplied time zone.',
-    'Closing dates are only stored when explicitly stated or already present. Never infer one from urgency.',
-    'Completion: mark the whole case completed only when Dylan clearly says the file/matter itself is done, closed, finished, or no longer needs tracking. Finishing one step is an event, not case completion.',
-    'Work-language cues: need to call/text/email/order/upload/scan/send/get/find/pull/look up usually means ball_owner=me and todo. I texted/called/emailed/requested/ordered usually means request made and waiting may be appropriate. payoff ordered/title search ordered/documents requested generally mean waiting. received/came in/they sent it means the waiting condition ended. good for now/keep an eye on it means watching.',
-    'Use event_kind=request when Dylan made a request; response when something came back; action for Dylan’s completed or required step; follow_up when Dylan circled back; completion when the case closed; note/status for other factual changes. Reopening is usually status unless the new statement is another action/request/response.',
-    'The confirmation_question is what the wizard shows with Yes/No. Make it concrete enough that Dylan can see exactly where Orbit intends to put the information. If the case link is uncertain, say so there.',
-    'For kind=answer, answer only from supplied evidence. If the exact requested fact is not present, say that fact is not stored; do not broaden that into “no file exists” when related history/captures were found.',
-    'Keep titles concise. Prefer canonical case number at the beginning when present. current_situation says where the file stands now. next_action is the next concrete move, or empty when truly none is known.',
-    'commit_reply is a short sentence Orbit can speak after every proposal has been confirmed and saved.',
+    'You are Orbit inside Dylan’s private Work toolbox. Interpret natural spoken work updates into a reviewable draft. NOTHING you propose becomes final until Dylan confirms it in the wizard.',
+    'Core model: File/case -> durable facts -> lifecycle phase -> current situation -> who has the ball -> next action -> when to care again. Keep those concepts separate.',
+    'CONTEXT IS FILE-SPECIFIC. existing_cases can include history, facts, phases, and memory_summary. priority_case_history is deeper history for exact/focused files. matched_history contains timeline hits. matched_prior_captures contains earlier Work speech/text, including captures that never became a saved case. matched_facts contains permanent facts found by address/person/company/etc.',
+    'SEARCH BEFORE SAYING NOT FOUND. Search active AND completed files, permanent facts, phases, timeline evidence, and prior captures. A prior capture is evidence that Dylan said something, not proof that it was committed. If it exists only in capture memory, say so accurately.',
+    'Evidence hierarchy: explicit case number in CURRENT utterance > exact permanent-fact or timeline match > linked committed prior capture > unlinked prior capture > focused_case_id > broad recent turns. A focused file NEVER overrides a clearly different case number/address/person/property in the current utterance.',
+    'The input contains intent_hint from a deterministic classifier. Respect action when intent_hint=action unless the words unmistakably ask Orbit for information. Respect question when intent_hint=question unless the user explicitly assigns themselves an action. mixed/unclear requires normal reasoning and may require a confirmation question.',
+    'INTENT: “I need to call/text/email/get/find/pull/look up/order/upload/scan/send...” is usually a WORK ACTION. “What is…?”, “Do we have…?”, “Did we get…?” is usually a question. Do not answer an action request with “I do not have that.”',
+    'PERMANENT FACTS: Use fact_changes for stable file facts that should survive state changes: property_address, borrower, borrower_spouse, seller, phone, email, lender, payoff_company, agent, hoa, parcel, or similarly useful identifiers. Use short snake_case keys. Include aliases when the same fact may be spoken differently (Chris/Christopher, Rd/Road, company abbreviations). Do not store transient workflow state as a fact.',
+    'Facts are additive by default. Use action=remove only when Dylan explicitly corrects/retracts a stored fact or the evidence clearly says the old value was wrong. Never silently delete an old fact just because a new phase begins.',
+    'ALIASES: Preserve the actual value Dylan supplied. Aliases help retrieval but are not permission to merge two people/properties. If identity is uncertain, use medium/low confidence and state the uncertainty in confirmation_question.',
+    'LIFECYCLE PHASES: A completed file is NOT a blank slate. Reopen/open this back up/active again/we need this file again means status=active on the same case when identity matches. The database creates a new phase automatically. Prior completed work remains historical; the new phase becomes current.',
+    'If Dylan says “different situation,” treat it as a new phase of the SAME case when identity matches. Do not overwrite the old story. current_situation describes only the present phase; memory_summary is the durable cross-phase story.',
+    'MEMORY SUMMARY: memory_summary must be a concise durable narrative of the file across phases, preserving important still-relevant facts and major prior outcomes even when they are older than the recent timeline. Update it on every case change; do not erase useful history merely because the current situation changed.',
+    'MATCH CONFIDENCE: Every proposal must include match_confidence and match_reason. high = exact case number or multiple strong identifiers; medium = plausible match with one good identifier/history link; low = ambiguous. match_reason must say what evidence linked this update, e.g. “Exact G26-0481” or “1445 Old Jonesboro Rd + Christopher in prior capture.”',
+    'If confidence is low, never hide that. Either propose a safe new/standalone Work item or make the uncertainty explicit in confirmation_question. Never confidently modify an existing case on a weak match.',
+    'EVIDENCE ISOLATION: evidence_excerpt must contain ONLY the portion of the CURRENT utterance relevant to this one proposal. In a multi-file ramble, each proposal gets its own case-specific excerpt. Do not copy unrelated file details into another proposal. The full capture is stored separately.',
+    'CONDITIONAL FOLLOW-UPS: follow_up_condition stores conditions such as “if Mike has not responded.” Preserve it until the condition is satisfied or Dylan removes it. If a new response/event clearly satisfies the existing condition, clear follow_up_at/follow_up_date/follow_up_condition so a stale reminder does not survive. If uncertain whether the condition was satisfied, preserve it and mention the uncertainty.',
+    'RULEBOOK: approved rules below are user-confirmed behavior and outrank generic work-language cues unless they conflict with the current explicit instruction. Never invent an approved rule. rule_suggestions are ONLY for reusable lessons discovered from Dylan correcting a draft; otherwise return an empty list. A suggestion is not active until Dylan explicitly approves it in the UI.',
+    rules,
+    'NOT-FOUND ANSWERS: answer_status must distinguish found (exact answer stored), partial (related data found but incomplete), historical_only (only timeline/phase evidence), capture_only (only old capture evidence), missing_fact (file exists but requested fact is absent), and not_seen (no supporting evidence anywhere searched). Never say “no file exists” when the correct state is missing_fact/capture_only/historical_only.',
+    'QUESTIONS: kind=answer only for genuine information questions. Answer only from supplied evidence. If a file exists but the requested phone/name/etc is absent, say the fact is not stored and use answer_status=missing_fact.',
+    'CHANGES: kind=changes for work updates/actions. One proposal per distinct file or standalone matter. A single ramble can update multiple files.',
+    'Case numbers use GYY-NNNN. Input normalization already repairs common clear speech forms. Never invent or alter a digit. If digits remain unclear, keep case_number null or preserve the known identifier and explain the uncertainty.',
+    'For an existing case, copy exact case_id and updated_at into expected_updated_at. For a genuinely new matter use null/null. Do not duplicate a completed case merely because it is reopening.',
+    'For updates output COMPLETE desired current state. Preserve existing title, case number, closing date, follow-up, condition, memory_summary, and other fields unless Dylan changes them or the new event logically resolves them. Null means the final value is empty, not “unchanged.”',
+    'Workflow: todo=Dylan acts; waiting=request already made and someone else has next move; watching=no immediate action, monitor; follow_up=Dylan’s next action is specifically to circle back later.',
+    'Ball: me=Dylan acts; other=someone else acts; watching=monitoring; none=completed. ball_with only when supported by evidence.',
+    'Dates: never invent clock times. Date only -> follow_up_date. Explicit date+time -> follow_up_at with correct offset. closing_date only when explicit or already stored.',
+    'Completion: mark whole case completed only when Dylan clearly says the file/matter itself is done/closed/finished/no longer needs tracking. Finishing one step is an event, not file completion.',
+    'Work-language cues: need to call/text/email/order/upload/scan/send/get/find/pull/look up => usually todo/me. I texted/called/emailed/requested/ordered => request made, often waiting/other. payoff ordered/title search ordered/docs requested => usually waiting. received/came in/they sent it => waiting condition may be resolved. good for now/keep an eye on it => watching.',
+    'event_kind: request=request made; response=something returned; action=Dylan completed/needs concrete step; follow_up=circled back; completion=case closed; status/note=other factual change. Reopening is usually status unless the new statement is another action/request/response.',
+    'confirmation_question is the wizard text. Make it concrete enough to expose where Orbit will put the information, the matched file, and any uncertainty.',
+    'Keep titles concise. Prefer canonical case number first. current_situation is present phase only. next_action is next concrete move or empty if truly unknown. commit_reply is short and speakable.',
     'captured_at='+capturedAt+'; time_zone='+timeZone,
   ].join('\n');
 }
