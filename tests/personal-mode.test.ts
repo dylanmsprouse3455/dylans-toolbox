@@ -7,7 +7,11 @@ test('Personal areas exclude Work and Personal prompt enforces separation',()=>{
   assert.equal(PERSONAL_AREAS.includes('Work' as never),false);
   const prompt=captureInstructions('2026-09-11T16:00:00-04:00','America/New_York','personal');
   assert.match(prompt,/Keep Work completely separate/);
+  assert.match(prompt,/ENTITY ALIASES/);
+  assert.match(prompt,/SAME GOAL, UPDATE IT/);
   assert.match(prompt,/CONNECTED ACTIONS/);
+  assert.match(prompt,/DEPENDENCIES/);
+  assert.match(prompt,/ERRAND AND LIST MERGING/);
   assert.match(prompt,/RELATED EXISTING TASKS/);
   assert.match(prompt,/GENERAL NOTES/);
 });
