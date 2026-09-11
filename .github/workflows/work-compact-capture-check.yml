@@ -1,0 +1,90 @@
+name: Check Compact Work Capture
+on:
+  push:
+    branches: [work-compact-capture]
+permissions:
+  contents: write
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply compact capture layout once
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('app/work-toolbox.tsx')
+          s=p.read_text()
+
+          if "[captureMode,setCaptureMode]" not in s:
+              s=s.replace(
+                  "  const [section,setSection]=useState<SectionKey>('todo'),[success,setSuccess]=useState<WorkSuccess|null>(null);\n",
+                  "  const [section,setSection]=useState<SectionKey>('todo'),[success,setSuccess]=useState<WorkSuccess|null>(null);\n  const [captureMode,setCaptureMode]=useState<'talk'|'type'|null>(null);\n",
+                  1,
+              )
+
+          s=s.replace(
+              "      if(result.kind==='work_preview'){openWizard(result as WorkPreviewReceipt);setDraft('');setLiveTranscript('');setInterim('');setPendingAudio(null);return;}",
+              "      if(result.kind==='work_preview'){setCaptureMode(null);openWizard(result as WorkPreviewReceipt);setDraft('');setLiveTranscript('');setInterim('');setPendingAudio(null);return;}",
+              1,
+          )
+          s=s.replace(
+              "        const answer=(result as WorkAnswer).answer;setReply(answer);speakReply(answer);setDraft('');setLiveTranscript('');setInterim('');setPendingAudio(null);return;",
+              "        const answer=(result as WorkAnswer).answer;setCaptureMode(null);setReply(answer);speakReply(answer);setDraft('');setLiveTranscript('');setInterim('');setPendingAudio(null);return;",
+              1,
+          )
+          s=s.replace(
+              "  function talkAbout(item:WorkCase){setFocusCaseId(item.id);setSelectedId(null);setTimeout(()=>captureRef.current?.scrollIntoView({behavior:'smooth',block:'start'}),0);}",
+              "  function talkAbout(item:WorkCase){setFocusCaseId(item.id);setSelectedId(null);setCaptureMode('talk');}",
+              1,
+          )
+
+          start=s.find('    <section className="work-capture" ref={captureRef}>')
+          end=s.find('    <section className="work-board" aria-live="polite">',start)
+          if start<0 or end<0:
+              raise SystemExit('capture block not found')
+          s=s[:start]+s[end:]
+
+          nav_anchor='    <nav className="work-bottom-tabs" aria-label="Work sections">\n'
+          if 'className="work-capture-launcher"' not in s:
+              launcher='''    <div className="work-capture-launcher" aria-label="Add a Work update">\n      <button type="button" className="talk" onClick={()=>setCaptureMode('talk')}><Mic/><span>Talk</span></button>\n      <button type="button" className="type" onClick={()=>setCaptureMode('type')}><PenLine/><span>Type</span></button>\n    </div>\n\n'''
+              if nav_anchor not in s: raise SystemExit('bottom nav anchor not found')
+              s=s.replace(nav_anchor,launcher+nav_anchor,1)
+
+          nav_end='''    </nav>\n\n'''
+          nav_pos=s.find(nav_anchor)
+          after_nav=s.find(nav_end,nav_pos)
+          if after_nav<0: raise SystemExit('bottom nav end not found')
+          after_nav += len(nav_end)
+          if 'work-capture-sheet-overlay' not in s:
+              sheet='''    {captureMode&&<div className="work-capture-sheet-overlay" role="dialog" aria-modal="true" aria-label={captureMode==='talk'?'Record a Work update':'Type a Work update'}>\n      <section className="work-capture-sheet" ref={captureRef}>\n        <div className="work-capture-sheet-top"><div><p className="work-step">Update Work</p><h2>{captureMode==='talk'?(recording?'I’m listening.':'Talk to Orbit'):'Type to Orbit'}</h2><p>{focusCaseId?'Current file: '+(cases.find(item=>item.id===focusCaseId)?.case_number||cases.find(item=>item.id===focusCaseId)?.title||'selected file')+'. ':''}Nothing changes until you confirm the wizard.</p></div><Button size="icon" variant="ghost" aria-label="Close update" disabled={recording||busy} onClick={()=>setCaptureMode(null)}><X/></Button></div>\n        {focusCaseId&&<button type="button" className="work-focus-clear" onClick={()=>setFocusCaseId(null)}>Clear file context</button>}\n        {captureMode==='talk'?<>\n          <Button className={'work-mic '+(recording?'recording':'')} onClick={()=>void microphone()} disabled={starting||busy&&!recording}>{starting||busy&&!recording?<LoaderCircle className="spinning"/>:recording?<Square fill="currentColor"/>:<Mic/>}</Button>\n          <p className="work-mic-label">{recording?Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0')+' · Tap when done':busy?'Building your review…':'Tap to record'}</p>\n          {recording&&(liveTranscript||interim)&&<div className="work-live">{normalizeWorkCaseNumbers(liveTranscript)}{interim&&<span> {interim}</span>}</div>}\n          {pendingAudio&&!busy&&<Button variant="outline" onClick={()=>void sendPreview(undefined,pendingAudio)}>Retry saved recording</Button>}\n        </>:<>\n          {!busy&&<form className="work-type compact" onSubmit={e=>{e.preventDefault();void sendPreview(draft);}}><Textarea autoFocus placeholder="Tell Orbit what happened, or ask where a file stands…" value={draft} onChange={e=>setDraft(e.target.value)} maxLength={30000}/><Button type="submit" disabled={!draft.trim()}><PenLine/>Review with Orbit</Button></form>}\n          {busy&&<p className="work-loading"><LoaderCircle className="spinning"/> Building your review…</p>}\n        </>}\n      </section>\n    </div>}\n\n'''
+              s=s[:after_nav]+sheet+s[after_nav:]
+
+          old="<Button onClick={()=>{setSuccess(null);setTimeout(()=>captureRef.current?.scrollIntoView({behavior:'smooth',block:'start'}),0);}}>Add Another Update</Button>"
+          new="<Button onClick={()=>{setSuccess(null);setCaptureMode('talk');}}>Add Another Update</Button>"
+          s=s.replace(old,new,1)
+          p.write_text(s)
+
+          css=Path('app/work-toolbox.css')
+          c=css.read_text()
+          marker='/* compact-capture-placement */'
+          if marker not in c:
+              c += r'''\n/* compact-capture-placement */\n.work-toolbox{padding-bottom:calc(168px + env(safe-area-inset-bottom))}\n.work-capture-launcher{position:fixed;z-index:58;left:50%;bottom:calc(66px + env(safe-area-inset-bottom));transform:translateX(-50%);width:min(360px,calc(100% - 34px));display:grid;grid-template-columns:1fr 1fr;gap:7px;padding:6px;border:1px solid #dbe5f1;border-radius:18px;background:#fffffff5;backdrop-filter:blur(18px);box-shadow:0 10px 32px #183b6820}\n.work-capture-launcher button{height:45px;border:0;border-radius:13px;display:flex;align-items:center;justify-content:center;gap:7px;font-weight:750;font-size:.88rem}\n.work-capture-launcher button svg{width:18px;height:18px}\n.work-capture-launcher .talk{background:#2489f5;color:#fff;box-shadow:0 5px 14px #2489f52b}\n.work-capture-launcher .type{background:#f1f6fc;color:#26476d}\n.work-capture-sheet-overlay{position:fixed;z-index:74;inset:0;background:#17243b24;backdrop-filter:blur(3px);display:flex;align-items:flex-end;justify-content:center;padding:14px 10px calc(66px + env(safe-area-inset-bottom))}\n.work-capture-sheet{width:min(700px,100%);max-height:78svh;overflow:auto;border:1px solid #dbe5f1;border-radius:25px 25px 20px 20px;background:#fff;padding:20px 18px 22px;box-shadow:0 22px 60px #183b682b}\n.work-capture-sheet-top{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;text-align:left}\n.work-capture-sheet-top h2{font-size:1.28rem;margin-top:2px}.work-capture-sheet-top p:last-child{margin-top:5px;color:#66758d;line-height:1.4}\n.work-capture-sheet .work-focus-clear{display:block;margin-top:12px}.work-capture-sheet .work-mic{margin-top:25px}.work-type.compact{margin-top:18px}.work-type.compact textarea{min-height:132px}\n@media(max-width:520px){.work-toolbox{padding-bottom:calc(158px + env(safe-area-inset-bottom))}.work-capture-launcher{bottom:calc(62px + env(safe-area-inset-bottom));width:calc(100% - 24px)}.work-capture-sheet-overlay{padding-left:8px;padding-right:8px;padding-bottom:calc(62px + env(safe-area-inset-bottom))}.work-capture-sheet{padding:18px 15px 20px;max-height:82svh}}\n'''
+              css.write_text(c)
+          PY
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add app/work-toolbox.tsx app/work-toolbox.css
+            git commit -m "Move Work capture above bottom tabs"
+            git push
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+        env:
+          TOOLBOX_BASE_PATH: /dylans-toolbox/
