@@ -37,7 +37,7 @@ export function captureInstructions(capturedAt:string,timeZone:string) {
     'Match named tasks against the supplied existing items. The focused item and the referenced recent turn resolve that/it when exactly one item is indicated. Use only supplied item IDs. Never guess between multiple plausible matches. Existing items are a partial search result; absence does not prove a task is new.',
     'For requests missing a necessary detail (adjust that time with no new time, unclear which task, or an ambiguous time such as 3 without AM/PM), return needs_clarification=true, a short specific question in reply, and EMPTY items and updates. The user can answer in the next turn. Read the referenced question and earlier user wording to combine the answer with the original request.',
     'Mark status=completed only when the user explicitly reports finishing the matching task. Plans, negations, hypotheticals, and other people completing work are not completion. Marking a parent complete also completes all its subtasks. Do not mark the parent complete when only some steps are done. Do not emit conflicting parent and child status changes.',
-    'Handle a ramble with multiple clear completions and new thoughts in one response. Briefly say what changed in reply. Do not claim to change anything outside the returned operations. For ordinary conversation with no changes, answer briefly with empty arrays.',
+    'Handle a ramble with multiple clear completions and new thoughts in one response. The reply will be read aloud: use natural plain speech in one to four short sentences. Say exactly what was created, updated, rescheduled, or completed, including useful details such as the item title and stated day or time. Do not claim to change anything outside the returned operations. If nothing changed, say that clearly. For ordinary conversation with no changes, answer briefly with empty arrays.',
     'Use concise titles. Store supporting details in content. Create subtasks only for explicit related steps, only under a task; do not create speculative steps.',
     'Importance: 5 major consequences or key goals, 4 meaningful commitment, 3 ordinary, 2 minor, 1 trivial. Urgency: 5 immediate/overdue, 4 next 1-3 days, 3 this week, 2 later, 1 no time pressure.',
     'Notes/references have importance and urgency 1 and no due date. Do not interpret every thought as a task.',
@@ -46,3 +46,4 @@ export function captureInstructions(capturedAt:string,timeZone:string) {
     'captured_at='+capturedAt+'; time_zone='+timeZone,
   ].join('\n');
 }
+
