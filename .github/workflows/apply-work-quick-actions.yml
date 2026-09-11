@@ -1,0 +1,68 @@
+name: Apply Work Quick Actions
+on:
+  push:
+    branches: [work-detail-quick-actions]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work-detail-quick-actions
+      - name: Apply targeted Work UI changes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path=Path('app/work-toolbox.tsx')
+          text=path.read_text()
+
+          old="""  const [selectedId,setSelectedId]=useState<string|null>(null),[events,setEvents]=useState<WorkEvent[]>([]),[eventsLoading,setEventsLoading]=useState(false),[focusCaseId,setFocusCaseId]=useState<string|null>(null);"""
+          new=old+"\n  const [completeTarget,setCompleteTarget]=useState<WorkCase|null>(null),[completeBusy,setCompleteBusy]=useState(false);"
+          assert old in text
+          text=text.replace(old,new,1)
+
+          old="""  function openCase(item:WorkCase){setSelectedId(item.id);setFocusCaseId(item.id);}\n  function talkAbout(item:WorkCase){setFocusCaseId(item.id);setSelectedId(null);setCaptureMode('talk');void microphone(item.id);}"""
+          new="""  function openCase(item:WorkCase){setSelectedId(item.id);setFocusCaseId(item.id);}\n  function talkAbout(item:WorkCase){setFocusCaseId(item.id);setSelectedId(null);setCaptureMode('talk');void microphone(item.id);}\n\n  async function markCaseDone(item:WorkCase){\n    const client=clientRef.current;if(!client)return;setCompleteBusy(true);setError('');\n    try{\n      const {data,error}=await client.rpc('toolbox_mark_work_case_done',{case_uuid:item.id});if(error)throw error;\n      const done=data as WorkCase;setCases(current=>current.map(row=>row.id===done.id?done:row));\n      setCompleteTarget(null);setSelectedId(null);setFocusCaseId(null);setSection('done');setReply('');\n    }catch(e){setError(errorText(e));}finally{setCompleteBusy(false);}\n  }"""
+          assert old in text
+          text=text.replace(old,new,1)
+
+          old="""    {success&&<div className=\"work-overlay work-success-overlay\" role=\"dialog\" aria-modal=\"true\" aria-label=\"Work update saved\"><section className=\"work-success-card\"><span className=\"work-success-check\"><Check/></span><h2>All Set!</h2><p>{success.reply||'Your update has been saved. Orbit is keeping track of it.'}</p><Button onClick={()=>{setSuccess(null);setCaptureMode('talk');void microphone(success.caseId);}}>Add Another Update</Button>{success.caseId&&<Button variant=\"outline\" onClick={()=>{setSuccess(null);setSelectedId(success.caseId);setFocusCaseId(success.caseId);}}>View File</Button>}</section></div>}"""
+          new="""    {success&&<div className=\"work-overlay work-success-overlay\" role=\"dialog\" aria-modal=\"true\" aria-label=\"Work update saved\"><section className=\"work-success-card\"><span className=\"work-success-check\"><Check/></span><h2>All Set!</h2><p>{success.reply||'Your update has been saved. Orbit is keeping track of it.'}</p><Button onClick={()=>{setSuccess(null);setCaptureMode('talk');void microphone(success.caseId);}}>Update</Button>{success.caseId&&<Button variant=\"outline\" onClick={()=>{setSuccess(null);setSelectedId(success.caseId);setFocusCaseId(success.caseId);}}>View</Button>}<Button variant=\"outline\" onClick={()=>{setSuccess(null);setFocusCaseId(null);}}>Continue</Button></section></div>}"""
+          assert old in text
+          text=text.replace(old,new,1)
+
+          old="""<Button size=\"icon\" variant=\"ghost\" aria-label=\"Close file\" onClick={()=>setSelectedId(null)}><X/></Button>"""
+          new="""<Button size=\"icon\" variant=\"ghost\" aria-label=\"Close file\" onClick={()=>{setSelectedId(null);setFocusCaseId(null);}} style={{width:52,height:52,minWidth:52,borderRadius:16,background:'#f4f8fc',border:'1px solid #dfe7f1',flexShrink:0}}><X style={{width:26,height:26}}/></Button>"""
+          assert old in text
+          text=text.replace(old,new,1)
+
+          old="""{selected.status==='active'&&<Button variant=\"outline\" onClick={()=>{setSelectedId(null);void sendPreview((selected.case_number||selected.title)+' is completely done. Mark the whole file completed.',undefined,selected.id);}}><CheckCircle2/>Mark file done</Button>}"""
+          new="""{selected.status==='active'&&<Button variant=\"outline\" onClick={()=>setCompleteTarget(selected)}><CheckCircle2/>Mark file done</Button>}"""
+          assert old in text
+          text=text.replace(old,new,1)
+
+          marker="""    {selected&&<div className=\"work-overlay\" role=\"dialog\" aria-modal=\"true\" aria-label=\"Work file details\"><section className=\"work-detail\">"""
+          assert marker in text
+
+          end="""  </main>;\n}"""
+          insert="""\n    {completeTarget&&<div className=\"work-overlay work-success-overlay\" role=\"dialog\" aria-modal=\"true\" aria-label=\"Confirm file completion\" style={{zIndex:95}}><section className=\"work-success-card\" style={{maxWidth:390}}><span className=\"work-success-check\"><CheckCircle2/></span><p className=\"work-step\">Mark file done</p><h2>{completeTarget.case_number||completeTarget.title}</h2><p>Are you sure you want to mark this file done?</p><Button className=\"work-confirm-yes\" onClick={()=>void markCaseDone(completeTarget)} disabled={completeBusy}>{completeBusy?<LoaderCircle className=\"spinning\"/>:<><Check/>Yes, mark done</>}</Button><Button variant=\"outline\" onClick={()=>setCompleteTarget(null)} disabled={completeBusy}>Cancel</Button></section></div>}\n\n"""+end
+          assert end in text
+          text=text.replace(end,insert,1)
+          path.write_text(text)
+
+          sql=Path('supabase/work-quick-complete.sql')
+          sql.write_text("""begin;\n\ncreate or replace function public.toolbox_mark_work_case_done(case_uuid uuid)\nreturns jsonb language plpgsql security invoker set search_path='' as $$\ndeclare\n  owner_id uuid=auth.uid();\n  target public.work_cases;\nbegin\n  if owner_id is null or not public.toolbox_can_access() then raise exception 'Owner access required'; end if;\n  select * into target from public.work_cases where id=case_uuid and user_id=owner_id for update;\n  if not found then raise exception 'Work file not found'; end if;\n  if target.status='completed' then return to_jsonb(target); end if;\n\n  update public.work_cases set\n    status='completed',\n    ball_owner='none',\n    ball_with=null,\n    next_action='',\n    follow_up_at=null,\n    follow_up_date=null,\n    last_event_at=now()\n  where id=case_uuid and user_id=owner_id\n  returning * into target;\n\n  insert into public.work_events(user_id,case_id,capture_id,kind,summary,source_text,occurred_at)\n  values(owner_id,case_uuid,null,'completion','Marked '||coalesce(target.case_number,target.title)||' done.','Quick completion confirmation',now());\n\n  return to_jsonb(target);\nend $$;\n\nrevoke all on function public.toolbox_mark_work_case_done(uuid) from public,anon;\ngrant execute on function public.toolbox_mark_work_case_done(uuid) to authenticated;\n\ncommit;\n""")
+          PY
+      - name: Remove temporary workflow and commit changes
+        shell: bash
+        run: |
+          rm .github/workflows/apply-work-quick-actions.yml
+          git config user.name "dylanmsprouse3455"
+          git config user.email "dylanm.sprouse3455@gmail.com"
+          git add app/work-toolbox.tsx supabase/work-quick-complete.sql .github/workflows/apply-work-quick-actions.yml
+          git commit -m "Refine Work file quick actions"
+          git push origin work-detail-quick-actions
