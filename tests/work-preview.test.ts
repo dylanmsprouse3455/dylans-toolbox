@@ -2,17 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {groupCaseHistory,validateWorkPreview,workSearchTerms} from '../lib/work-memory.ts';
 import {workPreviewInstructions} from '../lib/work-preview-schema.ts';
-import type {WorkCase} from '../lib/work-types.ts';
+import type {WorkCase,WorkProposal} from '../lib/work-types.ts';
 
 const existing:WorkCase={
   id:'11111111-1111-4111-8111-111111111111',user_id:'22222222-2222-4222-8222-222222222222',case_number:'G26-0441',title:'G26-0441 · Ball Lane',status:'active',workflow_state:'waiting',ball_owner:'other',ball_with:'Mike',current_situation:'Waiting on LLC documents.',next_action:'Follow up if they do not arrive.',memory_summary:'LLC documents were requested from Mike and remain outstanding.',current_phase_id:'33333333-3333-4333-8333-333333333333',follow_up_at:null,follow_up_date:'2026-09-14',follow_up_condition:'if Mike has not sent the LLC documents',follow_up_resolved_at:null,closing_date:null,last_event_at:'2026-09-11T14:00:00.000Z',created_at:'2026-09-11T13:00:00.000Z',updated_at:'2026-09-11T14:00:00.000Z'
 };
 
-function proposal(){return {
-  case_id:existing.id,expected_updated_at:existing.updated_at,case_number:'G26-0441',title:'G26-0441 · Ball Lane',status:'active' as const,workflow_state:'waiting' as const,ball_owner:'other' as const,ball_with:'Mike',current_situation:'Waiting on LLC documents.',next_action:'Follow up if they do not arrive.',memory_summary:existing.memory_summary,follow_up_at:null,follow_up_date:'2026-09-14',follow_up_condition:'if Mike has not sent the LLC documents',closing_date:null,event_kind:'request' as const,event_summary:'Requested LLC documents from Mike.',evidence_excerpt:'I requested the LLC docs from Mike.',match_confidence:'high' as const,match_reason:'Exact G26-0441 match.',fact_changes:[],confirmation_question:'Keep G26-0441 in Waiting on Response with the ball with Mike and follow up Monday if the documents have not arrived — is that right?'
+function proposal():WorkProposal{return {
+  case_id:existing.id,expected_updated_at:existing.updated_at,case_number:'G26-0441',title:'G26-0441 · Ball Lane',status:'active',workflow_state:'waiting',ball_owner:'other',ball_with:'Mike',current_situation:'Waiting on LLC documents.',next_action:'Follow up if they do not arrive.',memory_summary:existing.memory_summary,follow_up_at:null,follow_up_date:'2026-09-14',follow_up_condition:'if Mike has not sent the LLC documents',closing_date:null,event_kind:'request',event_summary:'Requested LLC documents from Mike.',evidence_excerpt:'I requested the LLC docs from Mike.',match_confidence:'high',match_reason:'Exact G26-0441 match.',fact_changes:[],confirmation_question:'Keep G26-0441 in Waiting on Response with the ball with Mike and follow up Monday if the documents have not arrived — is that right?'
 };}
 
-const changes=(rows=[proposal()])=>({kind:'changes' as const,headline:'One file update',answer:null,answer_status:null,commit_reply:'Saved.',proposals:rows,rule_suggestions:[]});
+const changes=(rows:WorkProposal[]=[proposal()])=>({kind:'changes' as const,headline:'One file update',answer:null,answer_status:null,commit_reply:'Saved.',proposals:rows,rule_suggestions:[]});
 
 test('accepts a versioned proposal for an existing Work file',()=>{
   const result=validateWorkPreview(changes(),new Map([[existing.id,existing]]));
@@ -21,23 +21,23 @@ test('accepts a versioned proposal for an existing Work file',()=>{
 });
 
 test('normalizes harmless ball-owner inconsistencies instead of rejecting the Work update',()=>{
-  const newCase={...proposal(),case_id:null,expected_updated_at:null,case_number:'G26-0454',title:'G26-0454 · 7691 Asheville Highway',workflow_state:'todo' as const,ball_owner:'me' as const,ball_with:"Jeannie's office",current_situation:'File needs to be placed in Jeannie’s office.',next_action:'Put the file in Jeannie’s office.',memory_summary:'File for 7691 Asheville Highway needs to be placed in Jeannie’s office.',follow_up_date:null,follow_up_condition:null,event_kind:'action' as const,event_summary:'Need to put the file in Jeannie’s office.',evidence_excerpt:'I need to drop off the file in Jeannie’s office.',match_reason:'New case identified by exact case number.',confirmation_question:'Put G26-0454 in To Do for placing the file in Jeannie’s office — is that right?'};
+  const newCase:WorkProposal={...proposal(),case_id:null,expected_updated_at:null,case_number:'G26-0454',title:'G26-0454 · 7691 Asheville Highway',workflow_state:'todo',ball_owner:'me',ball_with:"Jeannie's office",current_situation:'File needs to be placed in Jeannie’s office.',next_action:'Put the file in Jeannie’s office.',memory_summary:'File for 7691 Asheville Highway needs to be placed in Jeannie’s office.',follow_up_date:null,follow_up_condition:null,event_kind:'action',event_summary:'Need to put the file in Jeannie’s office.',evidence_excerpt:'I need to drop off the file in Jeannie’s office.',match_reason:'New case identified by exact case number.',confirmation_question:'Put G26-0454 in To Do for placing the file in Jeannie’s office — is that right?'};
   const result=validateWorkPreview(changes([newCase]),new Map());
   assert.equal(result.proposals[0].ball_owner,'me');
   assert.equal(result.proposals[0].ball_with,null);
 });
 
 test('deduplicates repeated permanent fact changes',()=>{
-  const row={...proposal(),fact_changes:[
-    {action:'upsert' as const,key:'property_address',value:'1445 Old Jonesboro Rd',aliases:['1445 Old Jonesboro Road'],confidence:'high' as const},
-    {action:'upsert' as const,key:'property_address',value:'1445 Old Jonesboro Rd',aliases:[],confidence:'high' as const},
+  const row:WorkProposal={...proposal(),fact_changes:[
+    {action:'upsert',key:'property_address',value:'1445 Old Jonesboro Rd',aliases:['1445 Old Jonesboro Road'],confidence:'high'},
+    {action:'upsert',key:'property_address',value:'1445 Old Jonesboro Rd',aliases:[],confidence:'high'},
   ]};
   const result=validateWorkPreview(changes([row]),new Map([[existing.id,existing]]));
   assert.equal(result.proposals[0].fact_changes.length,1);
 });
 
 test('completion clears stale follow-up state',()=>{
-  const row={...proposal(),status:'completed' as const,workflow_state:'todo' as const,ball_owner:'me' as const};
+  const row:WorkProposal={...proposal(),status:'completed',workflow_state:'todo',ball_owner:'me'};
   const result=validateWorkPreview(changes([row]),new Map([[existing.id,existing]]));
   assert.equal(result.proposals[0].follow_up_date,null);
   assert.equal(result.proposals[0].follow_up_condition,null);
@@ -45,12 +45,12 @@ test('completion clears stale follow-up state',()=>{
 });
 
 test('rejects stale versions so confirmation cannot overwrite newer file data',()=>{
-  const stale={...proposal(),expected_updated_at:'2026-09-11T13:30:00.000Z'};
+  const stale:WorkProposal={...proposal(),expected_updated_at:'2026-09-11T13:30:00.000Z'};
   assert.throws(()=>validateWorkPreview(changes([stale]),new Map([[existing.id,existing]])));
 });
 
 test('rejects duplicate creation when the case number already exists',()=>{
-  const duplicate={...proposal(),case_id:null,expected_updated_at:null};
+  const duplicate:WorkProposal={...proposal(),case_id:null,expected_updated_at:null};
   assert.throws(()=>validateWorkPreview(changes([duplicate]),new Map([[existing.id,existing]])));
 });
 
