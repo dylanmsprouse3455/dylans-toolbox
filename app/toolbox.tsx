@@ -1,7 +1,7 @@
 'use client';
 import {useCallback,useEffect,useRef,useState} from 'react';
 import type {Session,SupabaseClient} from '@supabase/supabase-js';
-import {Mic,Square,PenLine,Sun,Layers,CheckCheck,BriefcaseBusiness,House,Wallet,UserRound,Users,Folder,Lightbulb,Inbox,Check,CheckCircle2,Circle,ChevronRight,ArrowLeft,WifiOff,LoaderCircle,Settings2,FileText,Bookmark,CloudUpload,LogOut,ShieldCheck,Box} from 'lucide-react';
+import {Mic,Square,PenLine,Sun,Layers,CheckCheck,BriefcaseBusiness,House,Wallet,UserRound,Users,Folder,Lightbulb,Inbox,Check,CheckCircle2,Circle,ChevronRight,ArrowLeft,WifiOff,LoaderCircle,Settings2,FileText,Bookmark,CloudUpload,LogOut,ShieldCheck,Box,Volume2} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
@@ -12,6 +12,7 @@ import {getSupabase} from '@/lib/supabase';
 import {appBase,captureUrl,publicConfig} from '@/lib/public-config';
 import {AREAS,actionable,attention,dueLabel,dueTime,quadrant,type Area,type Item,type ItemType} from '@/lib/items';
 import {acceptCapture,cachedItems,cachedTurn,displayTurn,capturesFor,changesFor,putLocal,removeLocal,type Capture,type Change,type TurnReceipt,type AssistantTurn} from '@/lib/local';
+import {speakReply,stopSpeaking} from '@/lib/speech';
 
 const areaIcons={Work:BriefcaseBusiness,Home:House,Money:Wallet,Personal:UserRound,People:Users,Projects:Folder,Ideas:Lightbulb,Inbox};
 const errorText=(e:unknown)=>e instanceof Error?e.message:'Something went wrong. Please try again.';
@@ -42,8 +43,13 @@ export default function Toolbox(){
   const unmounted=useRef(false);
   const actionRef=useRef<(text:string)=>Promise<void>>(async()=>{});
   const authGeneration=useRef(0);
+  const spokenTurns=useRef(new Set<string>());
 
   const updateItems=useCallback((next:Item[])=>{itemsRef.current=next;setItems(next);},[]);
+  const speakTurn=useCallback((turn:AssistantTurn,repeat=false)=>{
+    if(!repeat&&spokenTurns.current.has(turn.id))return;
+    if(speakReply(turn.reply))spokenTurns.current.add(turn.id);
+  },[]);
   const updatePending=useCallback(async()=>{
     const owner=sessionRef.current?.user.id;if(!owner)return;
     const [captures,changes]=await Promise.all([capturesFor(owner),changesFor(owner)]);
@@ -99,7 +105,7 @@ export default function Toolbox(){
           const cached=await acceptCapture(capture,result.items,result.turn_id?result:undefined);
           if(sessionRef.current?.user.id!==owner)break;
           updateItems(cached);
-          if(result.turn_id){const turn=displayTurn(result);lastTurnRef.current=turn;setLastTurn(turn);}
+          if(result.turn_id){const turn=displayTurn(result);lastTurnRef.current=turn;setLastTurn(turn);if(capture.audio)speakTurn(turn);}
           const newItems=result.items as Item[];
           setFeedback(result.turn_id?'':newItems.length?'Put away '+newItems.length+' '+(newItems.length===1?'item':'items')+'. We’ll surface what matters.':'Nothing to add from that capture.');
           await updatePending();
@@ -111,7 +117,7 @@ export default function Toolbox(){
       await refresh();await updatePending();
     }catch(e){if(sessionRef.current?.user.id===owner)setError(errorText(e));}
     finally{lock.current=false;setBusy(false);}
-  },[refresh,updatePending,updateItems]);
+  },[refresh,speakTurn,updatePending,updateItems]);
 
   useEffect(()=>{
     unmounted.current=false;setOnline(navigator.onLine);
@@ -149,7 +155,7 @@ export default function Toolbox(){
     const connection=()=>setOnline(navigator.onLine);
     window.addEventListener('online',connection);window.addEventListener('offline',connection);
     return()=>{unmounted.current=true;unsubscribe?.();window.removeEventListener('online',connection);window.removeEventListener('offline',connection);
-      if(recorder.current?.state==='recording')recorder.current.stop();};
+      if(recorder.current?.state==='recording')recorder.current.stop();stopSpeaking();};
   },[updateItems,updatePending]);
   useEffect(()=>{
     if(!session)return;
@@ -206,6 +212,7 @@ export default function Toolbox(){
   },[]);
   async function microphone(focusId?:string){
     if(recording){recorder.current?.stop();return;}
+    stopSpeaking();
     const owner=sessionRef.current?.user.id;
     if(!owner){setSheet('account');return;}
     const conversation={reply_to:lastTurnRef.current?.id,focus_id:focusId};
@@ -328,6 +335,7 @@ export default function Toolbox(){
     <div aria-live="polite" aria-atomic="true">{feedback&&<p className="feedback">{feedback}</p>}</div>
     {lastTurn&&<section className="auth-card stack" aria-label="Toolbox reply" aria-live="polite" style={{marginTop:16}}>
       <h2>{lastTurn.needs_clarification?'One detail before I change anything':'Toolbox'}</h2><p>{lastTurn.reply}</p>
+      <Button variant="outline" onClick={()=>speakTurn(lastTurn,true)}><Volume2/>Hear reply again</Button>
       {lastTurn.item_ids.slice(0,8).map(id=>items.find(item=>item.id===id)).filter((item):item is Item=>!!item).map(item=><Button key={item.id} variant="outline" style={{height:'auto',whiteSpace:'normal',justifyContent:'flex-start',textAlign:'left'}} onClick={()=>setSelected(item.id)}>{item.title} · {item.status==='completed'?'Completed':dueLabel(item.due_at,item.due_date)||'Saved'}</Button>)}
       {lastTurn.item_ids.length>8&&<p className="muted">All {lastTurn.item_ids.length} affected items are available in Areas and Completed.</p>}
       <p className="muted">Use the microphone below to reply, make a correction, or tell me what you finished.</p>
@@ -421,3 +429,4 @@ function CaptureDownload({capture}:{capture:Capture}){
   const extension=capture.audio?(capture.audio.type.includes('mp4')?'m4a':capture.audio.type.includes('ogg')?'ogg':'webm'):'txt';
   return url?<a href={url} download={'toolbox-'+capture.id+'.'+extension} style={{display:'inline-block',padding:'12px 0',textDecoration:'underline',fontWeight:600}}>{capture.audio?'Download recording':'Download thought'}</a>:null;
 }
+
