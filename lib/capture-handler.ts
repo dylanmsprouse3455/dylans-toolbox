@@ -16,6 +16,8 @@ export async function handleCapture(request:Request,c:CaptureConfig){
     const {data:auth,error:authError}=await client.auth.getUser(authorization.slice(7));
     if(authError||!auth.user)throw new Error('AUTH');
     const user=auth.user;
+    const {data:allowed,error:accessError}=await client.rpc('toolbox_can_access');
+    if(accessError||allowed!==true)return json({error:'This private toolbox is restricted to its owner.'},403);
     if(Number(request.headers.get('content-length')??0)>22000000)return json({error:'Recording is too large. Please keep recordings under five minutes.'},413);
     const form=await request.formData();
     const parsed=metadata.safeParse({id:form.get('id'),captured_at:form.get('captured_at'),time_zone:form.get('time_zone')});

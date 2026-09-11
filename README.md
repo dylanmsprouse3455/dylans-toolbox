@@ -24,7 +24,9 @@ supabase/schema.sql records the existing deployed schema; do not rerun its CREAT
 
 ## Using it
 
-Sign in or create an account and confirm its email. Tap the microphone, speak, then tap again to save. A typed thought follows the same flow. Captures save to IndexedDB before upload. A successful response is cached in the same transaction that removes its pending raw capture. Failure leaves the capture available for retry and playback. A server receipt prevents duplicate items after lost responses.
+Public signup is disabled. Only the account bound in the private database owner table can open the toolbox, access items, or use AI capture. The owner joins using an administrator-sent private invitation and sets a password. Signed-out visitors see only a sign-in screen. The owner's email and UUID are not published in source code. Apply supabase/owner-access.sql to an existing installation before deploying this version; an empty owner table denies all access until the administrator binds the invited account.
+
+Tap the microphone, speak, then tap again to save. A typed thought follows the same flow. Captures save to IndexedDB before upload. A successful response is cached in the same transaction that removes its pending raw capture. Failure leaves the capture available for retry and playback. A server receipt prevents duplicate items after lost responses.
 
 Home shows at most five relevant top-level active tasks or reminders. Areas holds the rest. Completing or reopening a parent also updates its subtasks. Editing details requires a connection; completion queues offline.
 

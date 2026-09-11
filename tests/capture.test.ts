@@ -18,6 +18,7 @@ test('Text and audio processing, AI failure, transcript recovery, and idempotent
   globalThis.fetch=async(input:RequestInfo|URL,init?:RequestInit)=>{
     const req=input instanceof Request?input:new Request(input,init),url=new URL(req.url);
     if(url.pathname==='/auth/v1/user')return Response.json({id:owner,aud:'authenticated',role:'authenticated',email:'test@example.invalid'});
+    if(url.pathname.endsWith('/rpc/toolbox_can_access'))return Response.json(true);
     if(url.hostname==='api.openai.com'){
       assert.equal(req.headers.get('authorization'),'Bearer test-server-only');
       if(url.pathname.includes('transcriptions')){transcriptions++;assert.equal((await req.formData()).get('model'),'gpt-4o-mini-transcribe');return Response.json({text:'Call Sam tomorrow.'});}

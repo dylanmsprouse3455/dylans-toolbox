@@ -26,7 +26,8 @@ export default function Toolbox(){
   const [sheet,setSheet]=useState<'write'|'account'|'pending'|null>(null);
   const [draft,setDraft]=useState(''),[selected,setSelected]=useState<string|null>(null);
   const [recording,setRecording]=useState(false),[seconds,setSeconds]=useState(0),[starting,setStarting]=useState(false);
-  const [email,setEmail]=useState(''),[password,setPassword]=useState(''),[authMode,setAuthMode]=useState<'signin'|'signup'>('signin');
+  const [email,setEmail]=useState(''),[password,setPassword]=useState('');
+  const [settingPassword,setSettingPassword]=useState(()=>typeof location!=='undefined'&&['invite','recovery'].includes(new URLSearchParams(location.hash.slice(1)).get('type')||''));
   const [authBusy,setAuthBusy]=useState(false),[authMessage,setAuthMessage]=useState('');
   const [editing,setEditing]=useState(false),[editTitle,setEditTitle]=useState(''),[editContent,setEditContent]=useState('');
   const [editArea,setEditArea]=useState<Area>('Inbox'),[editType,setEditType]=useState<ItemType>('task'),[editDate,setEditDate]=useState('');
@@ -37,6 +38,7 @@ export default function Toolbox(){
   const recordingOwner=useRef<string|null>(null),recTimer=useRef<ReturnType<typeof setInterval>|null>(null);
   const recovery=useRef<Capture|null>(null),unmounted=useRef(false);
   const actionRef=useRef<(text:string)=>Promise<void>>(async()=>{});
+  const authGeneration=useRef(0);
 
   const updateItems=useCallback((next:Item[])=>{itemsRef.current=next;setItems(next);},[]);
   const updatePending=useCallback(async()=>{
@@ -112,6 +114,17 @@ export default function Toolbox(){
     getSupabase().then(async client=>{
       if(unmounted.current)return;clientRef.current=client;
       const accept=async(next:Session|null)=>{
+        const generation=++authGeneration.current;
+        if(next){
+          try{
+            const allowed=navigator.onLine?await client.rpc('toolbox_can_access'):{data:localStorage.getItem('toolbox-verified-owner')===next.user.id,error:null};
+            if(allowed.error)throw new Error('Could not verify access. Reconnect and sign in again.');
+            if(allowed.data!==true)throw new Error('This toolbox is private. Only its owner can sign in.');
+            if(generation!==authGeneration.current)return;
+            localStorage.setItem('toolbox-verified-owner',next.user.id);
+          }catch(e){if(generation!==authGeneration.current)return;next=null;setAuthMessage(errorText(e));}
+        }
+        if(generation!==authGeneration.current||unmounted.current)return;
         const previous=sessionRef.current?.user.id;
         sessionRef.current=next;setSession(next);
         if(previous!==next?.user.id){
@@ -123,7 +136,7 @@ export default function Toolbox(){
         setReady(true);
       };
       const {data}=await client.auth.getSession();await accept(data.session);
-      const auth=client.auth.onAuthStateChange((_event,next)=>{void accept(next);});
+      const auth=client.auth.onAuthStateChange((event,next)=>{if(event==='PASSWORD_RECOVERY')setSettingPassword(true);setTimeout(()=>{void accept(next);},0);});
       unsubscribe=()=>auth.data.subscription.unsubscribe();
     }).catch(e=>{setError(errorText(e));setReady(true);});
     if('serviceWorker'in navigator)navigator.serviceWorker.register(new URL('sw.js',appBase()),{scope:appBase().pathname}).catch(()=>{});
@@ -224,10 +237,11 @@ export default function Toolbox(){
     e.preventDefault();setAuthBusy(true);setAuthMessage('');
     try{
       const client=clientRef.current??await getSupabase();clientRef.current=client;
-      const result=authMode==='signup'?await client.auth.signUp({email,password,options:{emailRedirectTo:appBase().href}}):await client.auth.signInWithPassword({email,password});
+      const result=await client.auth.signInWithPassword({email,password});
       if(result.error)throw result.error;
-      if(authMode==='signup'&&!result.data.session){setAuthMessage('Check your email to confirm your account, then return here and sign in.');setAuthMode('signin');}
-      else{setSheet(null);setPassword('');}
+      const {data:allowed,error:accessError}=await client.rpc('toolbox_can_access');
+      if(accessError||allowed!==true){await client.auth.signOut({scope:'local'});throw new Error('This toolbox is private. Only its owner can sign in.');}
+      setSheet(null);setPassword('');
     }catch(e){setAuthMessage(errorText(e));}finally{setAuthBusy(false);}
   }
   async function signOut(){
@@ -278,6 +292,14 @@ export default function Toolbox(){
   const areaItems=items.filter(i=>i.area===area&&i.status==='active'&&!i.parent_id).sort((a,b)=>b.created_at.localeCompare(a.created_at));
   const completed=items.filter(i=>i.status==='completed'&&!i.parent_id).sort((a,b)=>b.updated_at.localeCompare(a.updated_at));
   const pendingCount=pending.length+pendingChanges;
+  const loginForm=<form className="stack" onSubmit={e=>void signIn(e)}>
+    <label><span className="field-label">Email</span><Input type="email" autoComplete="email" inputMode="email" required value={email} onChange={e=>setEmail(e.target.value)}/></label>
+    <label><span className="field-label">Password</span><Input type="password" autoComplete="current-password" required value={password} onChange={e=>setPassword(e.target.value)}/></label>
+    {authMessage&&<p role="alert">{authMessage}</p>}
+    <Button type="submit" disabled={authBusy||!online}>{authBusy?'Signing in…':'Sign in'}</Button>
+  </form>;
+  if(!session)return <main className="shell"><header className="app-header"><h1>Dylan’s Toolbox</h1></header><section className="auth-card"><ShieldCheck/><h2>Your private toolbox</h2><p className="muted">Access is restricted to the owner. Public signup is closed.</p>{ready?loginForm:<p className="loading">Checking access…</p>}</section></main>;
+  if(settingPassword)return <main className="shell"><section className="auth-card"><h1>Set your Toolbox password</h1><p>Your private invitation has been verified.</p><form className="stack" onSubmit={async e=>{e.preventDefault();setAuthBusy(true);setAuthMessage('');try{const {error}=await clientRef.current!.auth.updateUser({password});if(error)throw error;setPassword('');setSettingPassword(false);}catch(e){setAuthMessage(errorText(e));}finally{setAuthBusy(false);}}}><label><span className="field-label">New password</span><Input type="password" autoComplete="new-password" minLength={12} required value={password} onChange={e=>setPassword(e.target.value)}/></label><p className="muted">Use at least 12 characters.</p>{authMessage&&<p role="alert">{authMessage}</p>}<Button type="submit" disabled={authBusy||!online}>{authBusy?'Saving…':'Save password and open Toolbox'}</Button></form></section></main>;
   return <main className="shell">
     <header className="app-header"><div className="brand"><span className="brand-mark"><Box size={21}/></span><h1>Dylan’s Toolbox</h1></div>
       <Button variant="ghost" size="icon" aria-label="Account and app settings" onClick={()=>setSheet('account')}><Settings2/></Button></header>
@@ -331,13 +353,7 @@ export default function Toolbox(){
           <p className="muted">Reminders appear in the app when they’re due. This version doesn’t send push notifications.</p>
           {pendingCount>0&&<p className="muted">Your {pendingCount} pending captures or changes stay on this device and resume when you sign back into this account.</p>}
           <Button variant="outline" disabled={authBusy||busy||recording} onClick={()=>void signOut()}><LogOut/>Sign out on this device</Button>
-        </div>:<form className="stack" onSubmit={e=>void signIn(e)}>
-          <label><span className="field-label">Email</span><Input type="email" autoComplete="email" inputMode="email" required value={email} onChange={e=>setEmail(e.target.value)}/></label>
-          <label><span className="field-label">Password</span><Input type="password" autoComplete={authMode==='signup'?'new-password':'current-password'} minLength={8} required value={password} onChange={e=>setPassword(e.target.value)}/></label>
-          {authMessage&&<p role="status">{authMessage}</p>}
-          <Button type="submit" disabled={authBusy||!online}>{authBusy?<LoaderCircle className="spinning"/>:null}{authMode==='signup'?'Create my toolbox':'Sign in'}</Button>
-          <Button type="button" variant="ghost" onClick={()=>{setAuthMode(authMode==='signup'?'signin':'signup');setAuthMessage('');}}>{authMode==='signup'?'Already have an account? Sign in':'First time? Create an account'}</Button>
-        </form>)}
+        </div>:loginForm)}
       </SheetContent>
     </Sheet>
     <Sheet open={!!current} onOpenChange={open=>{if(!open)setSelected(null);}}>
