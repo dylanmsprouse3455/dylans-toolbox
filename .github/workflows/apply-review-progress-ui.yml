@@ -1,0 +1,85 @@
+name: Apply review progress UI
+on:
+  push:
+    branches: [improve-review-progress-ui]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: improve-review-progress-ui
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Apply UI patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('app/work-toolbox.tsx')
+          s=p.read_text()
+          replacements=[
+            ("  const [cases,setCases]=useState<WorkCase[]>([]),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false);","  const [cases,setCases]=useState<WorkCase[]>([]),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[reviewProgress,setReviewProgress]=useState(0);"),
+            ("  useEffect(()=>{if(selectedId)void loadEvents(selectedId);else setEvents([]);},[selectedId,loadEvents]);","""  useEffect(()=>{if(selectedId)void loadEvents(selectedId);else setEvents([]);},[selectedId,loadEvents]);
+  useEffect(()=>{
+    if(!busy){setReviewProgress(0);return;}
+    setReviewProgress(value=>Math.max(value,8));
+    const timer=setInterval(()=>setReviewProgress(value=>value>=92?92:Math.min(92,value+Math.max(1,Math.round((92-value)*.08)))),450);
+    return()=>clearInterval(timer);
+  },[busy]);"""),
+            ("    setSuccess(null);setBusy(true);setError('');setReply('');","    setSuccess(null);setReviewProgress(8);setBusy(true);setError('');setReply('');"),
+            ("        transcribed=true;form.delete('audio');audio=undefined;setPendingAudio(null);pendingRef.current={...pending,text:result.transcript};setDraft(result.transcript);setLiveTranscript(result.transcript);","        transcribed=true;setReviewProgress(36);form.delete('audio');audio=undefined;setPendingAudio(null);pendingRef.current={...pending,text:result.transcript};setDraft(result.transcript);setLiveTranscript(result.transcript);"),
+            ("      const review=new FormData();review.set('mode','retry');review.set('id',pending.id);","      setReviewProgress(value=>Math.max(value,48));const review=new FormData();review.set('mode','retry');review.set('id',pending.id);"),
+            ("    setBusy(true);setError('');\n    try{\n      const form=new FormData();form.set('mode','retry');form.set('id',id);","    setReviewProgress(48);setBusy(true);setError('');\n    try{\n      const form=new FormData();form.set('mode','retry');form.set('id',id);"),
+            ("  const SectionIcon=currentSection.icon;","""  const SectionIcon=currentSection.icon;
+  const reviewStage=reviewProgress<34?'Saving your words…':reviewProgress<72?'Organizing your update…':'Checking the details…';
+  const reviewProgressView=<div className=\"work-review-progress\" role=\"status\" aria-live=\"polite\"><span className=\"work-review-progress-icon\"><Sparkles/></span><div className=\"work-review-progress-copy\"><strong>{reviewStage}</strong><span>{recoverable?'Your transcript is saved while Orbit works.':'Orbit is preparing your review.'}</span></div><strong className=\"work-review-progress-percent\">{reviewProgress}%</strong><div className=\"work-review-progress-track\" role=\"progressbar\" aria-label=\"Preparing Work review\" aria-valuemin={0} aria-valuemax={100} aria-valuenow={reviewProgress}><span style={{width:reviewProgress+'%'}}/></div></div>;"""),
+            ("""        {captureMode==='talk'?<>
+          <Button className={'work-mic '+(recording?'recording':'')} onClick={()=>void microphone()} disabled={starting||recoverable||busy&&!recording}>{starting||busy&&!recording?<LoaderCircle className=\"spinning\"/>:recording?<Square fill=\"currentColor\"/>:<Mic/>}</Button>
+          <p className=\"work-mic-label\">{starting?'Starting…':recording?Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0')+' · Tap when done':busy?'Building your review…':'Tap to try again'}</p>
+          {recording&&(liveTranscript||interim)&&<div className=\"work-live\">{normalizeWorkCaseNumbers(liveTranscript)}{interim&&<span> {interim}</span>}</div>}
+          {recoverable&&!pendingAudio&&!busy&&<Button variant=\"outline\" onClick={()=>void sendPreview()}>Retry saved text</Button>}
+          {pendingAudio&&!busy&&<Button variant=\"outline\" onClick={()=>void sendPreview(undefined,pendingAudio)}>Retry transcription</Button>}
+        </>:<>
+          {!busy&&<form className=\"work-type compact\" onSubmit={e=>{e.preventDefault();void sendPreview(draft);}}><Textarea autoFocus placeholder=\"Tell Orbit what happened, or ask where a file stands…\" value={draft} readOnly={recoverable} onChange={e=>setDraft(e.target.value)} maxLength={30000}/><Button type=\"submit\" disabled={!draft.trim()}><PenLine/>{recoverable?'Retry saved text':'Review with Orbit'}</Button></form>}
+          {busy&&<p className=\"work-loading\"><LoaderCircle className=\"spinning\"/> Building your review…</p>}
+        </>}""","""        {captureMode==='talk'?<>
+          {busy?reviewProgressView:<><Button className={'work-mic '+(recording?'recording':'')} onClick={()=>void microphone()} disabled={starting||recoverable}>{starting?<LoaderCircle className=\"spinning\"/>:recording?<Square fill=\"currentColor\"/>:<Mic/>}</Button><p className=\"work-mic-label\">{starting?'Starting…':recording?Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0')+' · Tap when done':'Tap to try again'}</p></>}
+          {recording&&(liveTranscript||interim)&&<div className=\"work-live\">{normalizeWorkCaseNumbers(liveTranscript)}{interim&&<span> {interim}</span>}</div>}
+          {recoverable&&!pendingAudio&&!busy&&<Button variant=\"outline\" onClick={()=>void sendPreview()}>Retry saved text</Button>}
+          {pendingAudio&&!busy&&<Button variant=\"outline\" onClick={()=>void sendPreview(undefined,pendingAudio)}>Retry transcription</Button>}
+        </>:<>
+          {!busy&&<form className=\"work-type compact\" onSubmit={e=>{e.preventDefault();void sendPreview(draft);}}><Textarea autoFocus placeholder=\"Tell Orbit what happened, or ask where a file stands…\" value={draft} readOnly={recoverable} onChange={e=>setDraft(e.target.value)} maxLength={30000}/><Button type=\"submit\" disabled={!draft.trim()}><PenLine/>{recoverable?'Retry saved text':'Review with Orbit'}</Button></form>}
+          {busy&&reviewProgressView}
+        </>}""")
+          ]
+          for old,new in replacements:
+            if old not in s:
+              raise SystemExit('Missing TSX patch target: '+old[:80])
+            s=s.replace(old,new,1)
+          p.write_text(s)
+
+          p=Path('app/work-toolbox.css')
+          s=p.read_text()
+          marker='.work-capture-sheet .work-focus-clear{display:block;margin-top:12px}.work-capture-sheet .work-mic{margin-top:25px}.work-type.compact{margin-top:18px}.work-type.compact textarea{min-height:132px}'
+          addition=marker+"\n.work-review-progress{max-width:540px;margin:24px auto 4px;padding:18px;display:grid;grid-template-columns:46px minmax(0,1fr) auto;gap:10px 12px;align-items:center;text-align:left;border:1px solid #d9e7f7;border-radius:20px;background:linear-gradient(180deg,#f8fbff 0%,#fff 100%);box-shadow:0 12px 32px #245d9b10}.work-review-progress-icon{width:46px;height:46px;border-radius:15px;display:grid;place-items:center;background:#eaf4ff;color:#2489f5;box-shadow:inset 0 0 0 1px #d9ebff}.work-review-progress-icon svg{width:24px;height:24px}.work-review-progress-copy{min-width:0;display:grid;gap:2px}.work-review-progress-copy strong{font-size:1rem;color:#223653}.work-review-progress-copy span{font-size:.82rem;line-height:1.35;color:#6d7d94}.work-review-progress-percent{font-size:.78rem;color:#3f6f9f;font-variant-numeric:tabular-nums}.work-review-progress-track{grid-column:1/-1;height:10px;overflow:hidden;border-radius:999px;background:#e8eff7;box-shadow:inset 0 1px 2px #173a6510}.work-review-progress-track>span{display:block;height:100%;min-width:8px;border-radius:inherit;background:linear-gradient(90deg,#2489f5,#63aef8);transition:width .45s ease;position:relative;overflow:hidden}.work-review-progress-track>span:after{content:\"\";position:absolute;inset:0;background:linear-gradient(90deg,transparent,#ffffff66,transparent);transform:translateX(-100%);animation:work-progress-shimmer 1.6s ease-in-out infinite}@keyframes work-progress-shimmer{to{transform:translateX(100%)}}"
+          if marker not in s:
+            raise SystemExit('Missing CSS patch target')
+          p.write_text(s.replace(marker,addition,1))
+          PY
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+        env:
+          TOOLBOX_BASE_PATH: /dylans-toolbox/
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/work-toolbox.tsx app/work-toolbox.css
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Improve review loading state with progress bar"
+          git push origin HEAD:improve-review-progress-ui
