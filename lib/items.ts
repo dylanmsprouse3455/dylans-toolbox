@@ -5,7 +5,7 @@ export type ItemType = 'task' | 'reminder' | 'note' | 'reference';
 export type Item = {
   id: string; user_id: string; type: ItemType; title: string; content: string;
   area: Area; status: 'active' | 'completed'; importance: number; urgency: number;
-  due_at: string | null; parent_id: string | null; source_text: string;
+  due_at: string | null; parent_id: string | null; depends_on_id?: string | null; source_text: string;
   due_date?: string | null;
   capture_id: string | null; created_at: string; updated_at: string;
   completed_at?: string | null; last_opened_at?: string | null;
@@ -19,8 +19,13 @@ export function priority(item: Item, now = Date.now()) {
   const staleBoost=unattended>=24?Math.min(70,35+Math.floor((unattended-24)/24)*10):0;
   return item.importance * 12 + item.urgency * 8 + (hours < 0 ? 80 : hours <= 24 ? 60 : hours <= 72 ? 35 : hours <= 168 ? 10 : 0) + staleBoost;
 }
+export function blockedByActiveDependency(item:Pick<Item,'depends_on_id'>,items:Item[]){
+  if(!item.depends_on_id)return false;
+  const prerequisite=items.find(candidate=>candidate.id===item.depends_on_id);
+  return !!prerequisite&&prerequisite.status==='active';
+}
 export function attention(items: Item[], now = Date.now()) {
-  const ranked=items.filter(i => actionable(i) && i.status === 'active' && !i.parent_id &&
+  const ranked=items.filter(i => actionable(i) && i.status === 'active' && !i.parent_id && !blockedByActiveDependency(i,items) &&
     (i.importance >= 4 || i.urgency >= 4 || dueTime(i) <= now + 72 * 3600000 || unopenedForDay(i,now)))
     .sort((a,b) => priority(b, now) - priority(a, now) || (a.due_at ?? '9999').localeCompare(b.due_at ?? '9999') || a.created_at.localeCompare(b.created_at));
   const chosen=ranked.slice(0,5),stale=ranked.filter(i=>unopenedForDay(i,now));
