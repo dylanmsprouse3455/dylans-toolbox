@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {normalizeWorkCaseNumbers} from './work-context.ts';
 
 export const truthStates=['current','superseded','historical','uncertain'] as const;
 export const captureKinds=['case','person','property','event','fact','action','waiting','follow_up','date','question','note'] as const;
@@ -72,6 +73,8 @@ export function validateOrganizedCapture(value:unknown,bundle:CaptureBundle):Org
     const exactExcerpt=sourceSlice(source,item.source_excerpt);
     if(!exactExcerpt)throw new Error('ORGANIZE');
     item.source_excerpt=exactExcerpt;
+    const sourceCaseNumbers=[...new Set(normalizeWorkCaseNumbers(item.source_excerpt).toUpperCase().match(/G\d{2}-\d{4}/g)??[])];
+    if(item.case_numbers.length&&sourceCaseNumbers.length)item.case_numbers=sourceCaseNumbers;
     if(item.date_wording){
       const exactDateWording=sourceSlice(item.source_excerpt,item.date_wording);
       if(!exactDateWording)throw new Error('ORGANIZE');

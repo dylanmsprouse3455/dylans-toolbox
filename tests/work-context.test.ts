@@ -19,6 +19,7 @@ test('classifies obvious Work actions separately from questions',()=>{
   assert.equal(workIntentHint('I need to pull that file and get Christopher’s phone number.'),'action');
   assert.equal(workIntentHint('What is Christopher’s phone number?'),'question');
   assert.equal(workIntentHint('Did we get the payoff?'),'question');
+  assert.equal(workIntentHint('So there is a G 20 60232 Austin Porter need to get his mailing address'),'action');
 });
 
 test('work state marker is machine-readable but hidden from display content',()=>{

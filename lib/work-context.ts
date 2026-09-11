@@ -17,7 +17,7 @@ export function normalizeWorkEntity(input:string){
 
 export function workIntentHint(input:string):WorkIntentHint{
   const text=input.trim().toLowerCase();
-  const action=/\b(i|we)\s+(need|have|got)\s+to\b|\bremind me\b|\badd (?:this|that|a)\b|\bmake (?:this|that)\b|\bi should\b|\bi've got to\b|\bi gotta\b/.test(text);
+  const action=/\b(i|we)\s+(need|have|got)\s+to\b|\b(?:need|needs|gotta|have)\s+to\s+(?:call|text|email|get|find|pull|look\s+up|order|upload|scan|send|obtain|request|contact|follow\s+up)\b|\bremind me\b|\badd (?:this|that|a)\b|\bmake (?:this|that)\b|\bi should\b|\bi've got to\b|\bi gotta\b/.test(text);
   const question=/\?$|^(what|where|when|who|why|how|did|do|does|is|are|was|were|can|could|have|has)\b/.test(text)||/\bdo (?:we|i) have\b|\bdid (?:we|i) get\b|\bwhat(?:'s| is) the\b/.test(text);
   if(action&&question)return 'mixed';
   if(action)return 'action';
