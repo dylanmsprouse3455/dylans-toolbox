@@ -1,4 +1,5 @@
 export const AREAS = ['Work','Home','Money','Personal','People','Projects','Ideas','Inbox'] as const;
+export const PERSONAL_AREAS = ['Home','Money','Personal','People','Projects','Ideas','Inbox'] as const;
 export type Area = typeof AREAS[number];
 export type ItemType = 'task' | 'reminder' | 'note' | 'reference';
 export type Item = {
@@ -7,6 +8,7 @@ export type Item = {
   due_at: string | null; parent_id: string | null; source_text: string;
   due_date?: string | null;
   capture_id: string | null; created_at: string; updated_at: string;
+  completed_at?: string | null; last_opened_at?: string | null;
 };
 export function actionable(item: Pick<Item,'type'>) { return item.type === 'task' || item.type === 'reminder'; }
 export function dueTime(item:Pick<Item,'due_at'|'due_date'>){return item.due_at?Date.parse(item.due_at):item.due_date?new Date(item.due_date+'T23:59:59').getTime():Infinity;}
@@ -31,4 +33,19 @@ export function dueLabel(date: string | null,dateOnly?:string|null) {
   if (day === today) return 'Today' + time;
   if (day === tomorrow) return 'Tomorrow' + time;
   return d.toLocaleDateString([], {month:'short',day:'numeric',...(d.getFullYear() !== now.getFullYear() ? {year:'numeric' as const} : {})})+time;
+}
+
+export function unopenedForDay(item:Pick<Item,'last_opened_at'|'created_at'|'status'|'type'>,now=Date.now()){
+  if(item.status!=='active'||!actionable(item))return false;
+  const seen=Date.parse(item.last_opened_at||item.created_at);
+  return Number.isFinite(seen)&&now-seen>=24*3600000;
+}
+export function completionMoment(item:Pick<Item,'completed_at'|'updated_at'>){return item.completed_at||item.updated_at;}
+export function completionDayKey(item:Pick<Item,'completed_at'|'updated_at'>){const d=new Date(completionMoment(item));return Number.isNaN(d.getTime())?'unknown':d.toISOString().slice(0,10);}
+export function completionDayLabel(item:Pick<Item,'completed_at'|'updated_at'>,now=new Date()){
+  const d=new Date(completionMoment(item));if(Number.isNaN(d.getTime()))return 'Earlier';
+  const today=new Date(now.getFullYear(),now.getMonth(),now.getDate()),day=new Date(d.getFullYear(),d.getMonth(),d.getDate());
+  const diff=Math.round((today.getTime()-day.getTime())/86400000);
+  if(diff===0)return 'Today';if(diff===1)return 'Yesterday';
+  return d.toLocaleDateString([],{weekday:'long',month:'short',day:'numeric',year:d.getFullYear()!==now.getFullYear()?'numeric':undefined});
 }

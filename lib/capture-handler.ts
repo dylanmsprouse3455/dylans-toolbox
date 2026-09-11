@@ -27,12 +27,14 @@ export async function handleCapture(request:Request,c:CaptureConfig){
     if(!parsed.success)return json({error:'Capture details are invalid.'},400);
     const m=parsed.data;
     let workspace:'personal'|'work'=form.get('workspace')==='work'?'work':'personal';
+    let channel:'capture'|'ai'=form.get('channel')==='ai'?'ai':'capture';
     const contextIds=z.object({focus_id:z.string().uuid().optional(),reply_to:z.string().uuid().optional()}).safeParse({focus_id:form.get('focus_id')||undefined,reply_to:form.get('reply_to')||undefined});
     if(!contextIds.success)return json({error:'Conversation details are invalid.'},400);
     try{new Intl.DateTimeFormat('en-US',{timeZone:m.time_zone}).format();}catch{return json({error:'Time zone is invalid.'},400);}
-    const {data:existing,error:existingError}=await client.from('items').select('id,status,source_text,turn_result,area').eq('id',m.id).eq('type','capture').maybeSingle();
+    const {data:existing,error:existingError}=await client.from('items').select('id,status,source_text,turn_result,area,title,content').eq('id',m.id).eq('type','capture').maybeSingle();
     if(existingError)throw new Error('STORE');
     if(existing?.area==='Work')workspace='work';
+    if(existing?.title==='AI conversation')channel='ai';
     if(existing?.status==='processed'){
       if(existing.turn_result){const replay=await client.rpc('toolbox_apply_turn',{capture_uuid:m.id,source:'',entries:[],changes:[],reply:'',needs_clarification:false});if(replay.error)throw new Error('STORE');return json({...replay.data,already_saved:true});}
       const {data:items,error}=await client.from('items').select('*').eq('capture_id',m.id).neq('type','capture');
@@ -46,7 +48,7 @@ export async function handleCapture(request:Request,c:CaptureConfig){
     let text=typeof form.get('text')==='string'?String(form.get('text')).trim():'';
     const audio=form.get('audio');
     if(!existing){
-      const {error}=await client.from('items').insert({id:m.id,user_id:user.id,type:'capture',title:'Raw capture',content:JSON.stringify({...contextIds.data,workspace}),source_text:text.slice(0,30000),area:workspace==='work'?'Work':'Inbox',status:'pending',importance:1,urgency:1});
+      const {error}=await client.from('items').insert({id:m.id,user_id:user.id,type:'capture',title:channel==='ai'?'AI conversation':'Raw capture',content:JSON.stringify({...contextIds.data,workspace,channel}),source_text:text.slice(0,30000),area:workspace==='work'?'Work':'Inbox',status:'pending',importance:1,urgency:1});
       if(error&&error.code!=='23505')throw new Error('STORE');
     }
     if(audio instanceof File&&existing?.source_text)text=existing.source_text;
@@ -68,7 +70,7 @@ export async function handleCapture(request:Request,c:CaptureConfig){
     if(text.length>30000)return json({error:'Please keep each capture under 30,000 characters.'},413);
     const {error:transcriptError}=await client.from('items').update({source_text:text,area:workspace==='work'?'Work':'Inbox'}).eq('id',m.id).eq('status','pending');
     if(transcriptError)throw new Error('STORE');
-    const context=await conversationContext(client,text,contextIds.data.focus_id,contextIds.data.reply_to,workspace);
+    const context=await conversationContext(client,text,contextIds.data.focus_id,contextIds.data.reply_to,workspace,channel);
     const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:'Bearer '+c.OPENAI_API_KEY,'Content-Type':'application/json'},
       body:JSON.stringify({model:c.OPENAI_MODEL||'gpt-4.1-mini',store:false,instructions:captureInstructions(m.captured_at,m.time_zone,workspace),
         input:JSON.stringify(context.input),text:{format:{type:'json_schema',name:'organized_capture',strict:true,schema:outputSchema}},max_output_tokens:10000}),
@@ -78,6 +80,12 @@ export async function handleCapture(request:Request,c:CaptureConfig){
     if(result.status!=='completed')throw new Error('ORGANIZE');
     const output=result.output?.flatMap(o=>o.content??[]).filter(o=>o.type==='output_text').map(o=>o.text??'').join('');
     const organized=organizedCapture.parse(JSON.parse(output||'{}'));
+    if(workspace==='personal'){
+      const removed=organized.items.filter(item=>item.area==='Work').length+organized.updates.filter(change=>context.candidates.get(change.item_id)?.area==='Work'||change.area==='Work').length;
+      organized.items=organized.items.filter(item=>item.area!=='Work');
+      organized.updates=organized.updates.filter(change=>context.candidates.get(change.item_id)?.area!=='Work'&&change.area!=='Work');
+      if(removed)organized.reply=(organized.items.length||organized.updates.length?'I kept the Work part out of Personal and handled the personal part.':'That belongs in Work mode, so I kept it out of Personal.');
+    }
     if(workspace==='work'){
       for(const item of organized.items){
         item.area='Work';

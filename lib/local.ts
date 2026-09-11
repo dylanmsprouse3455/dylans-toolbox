@@ -1,5 +1,5 @@
 import type { Item } from './items';
-export type Capture={id:string;user_id:string;text?:string;audio?:Blob;captured_at:string;time_zone:string;error?:string;focus_id?:string;reply_to?:string};
+export type Capture={id:string;user_id:string;text?:string;audio?:Blob;captured_at:string;time_zone:string;error?:string;focus_id?:string;reply_to?:string;channel?:'capture'|'ai'};
 export type TurnReceipt={turn_id:string;items:Item[];updated_items:Item[];updated_ids:string[];reply:string;needs_clarification:boolean};
 export type AssistantTurn={id:string;reply:string;needs_clarification:boolean;item_ids:string[]};
 export const displayTurn=(turn:TurnReceipt):AssistantTurn=>({id:turn.turn_id,reply:turn.reply,needs_clarification:turn.needs_clarification,item_ids:[...turn.items.map(item=>item.id),...turn.updated_ids]});

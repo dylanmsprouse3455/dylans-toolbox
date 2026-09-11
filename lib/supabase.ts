@@ -30,7 +30,7 @@ function sanitizePersonalCache(){
       read.onsuccess=()=>{
         for(const entry of read.result??[]){
           if(!entry||!Array.isArray(entry.items))continue;
-          const items=entry.items.filter((item:unknown)=>!managedWorkRow(item));
+          const items=entry.items.filter((item:unknown)=>!(item&&typeof item==='object'&&(item as {area?:unknown}).area==='Work'));
           if(items.length!==entry.items.length)store.put({...entry,items});
         }
       };
@@ -55,7 +55,7 @@ async function scopedFetch(input:RequestInfo|URL,init?:RequestInit){
   try{
     const data=await response.clone().json();
     if(!Array.isArray(data))return response;
-    const filtered=data.filter((item:unknown)=>workspace==='work'?(managedWorkRow(item)||workWizardReceiptRow(item)):!managedWorkRow(item));
+    const filtered=data.filter((item:unknown)=>workspace==='work'?(managedWorkRow(item)||workWizardReceiptRow(item)):!(item&&typeof item==='object'&&(item as {area?:unknown}).area==='Work'));
     if(filtered.length===data.length)return response;
     const headers=new Headers(response.headers);headers.delete('content-length');
     return new Response(JSON.stringify(filtered),{status:response.status,statusText:response.statusText,headers});

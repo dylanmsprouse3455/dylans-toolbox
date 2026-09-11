@@ -14,6 +14,8 @@ create table public.items (
  source_text text not null default '' check (length(source_text)<=30000),
  created_at timestamptz not null default now(),
  updated_at timestamptz not null default now(),
+ completed_at timestamptz,
+ last_opened_at timestamptz,
  unique (id,user_id),
  constraint item_status check ((type='capture' and status in ('pending','processed')) or (type<>'capture' and status in ('active','completed'))),
  constraint own_parent foreign key (parent_id,user_id) references public.items(id,user_id) deferrable initially deferred,
@@ -31,9 +33,20 @@ create index items_owner_status on public.items(user_id,status,created_at desc);
 create index items_owner_area on public.items(user_id,area,status);
 create index items_parent_owner on public.items(parent_id,user_id);
 create index items_capture_owner on public.items(capture_id,user_id);
+create index items_owner_completed_at on public.items(user_id,completed_at desc) where type<>'capture' and status='completed';
 create function public.toolbox_touch_item() returns trigger language plpgsql set search_path='' as $$
 begin
- new.updated_at=now();
+ if tg_op='INSERT' then
+   new.updated_at=coalesce(new.updated_at,now());
+   if new.type<>'capture' and new.last_opened_at is null then new.last_opened_at=coalesce(new.created_at,now()); end if;
+   if new.type<>'capture' and new.status='completed' and new.completed_at is null then new.completed_at=now(); end if;
+ else
+   new.updated_at=now();
+   if new.type<>'capture' and old.status is distinct from new.status then
+     if new.status='completed' then new.completed_at=now(); end if;
+     if new.status='active' then new.completed_at=null; end if;
+   end if;
+ end if;
  if new.parent_id is not null then
    if new.type<>'task' or not exists(select 1 from public.items where id=new.parent_id and user_id=new.user_id and type='task' and parent_id is null) then
      raise exception 'Subtasks require an owned top-level task';
