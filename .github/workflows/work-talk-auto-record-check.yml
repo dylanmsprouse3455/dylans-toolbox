@@ -1,0 +1,52 @@
+name: Check Work Talk Auto Record
+on:
+  push:
+    branches: [work-talk-auto-record]
+permissions:
+  contents: write
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply auto-record behavior
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('app/work-toolbox.tsx')
+          s=p.read_text()
+          replacements=[
+            ("  async function microphone(){", "  async function microphone(focusOverride?:string|null){"),
+            ("if(complete)void sendPreview(complete);else setError('I didn’t catch any words. Try again.');", "if(complete)void sendPreview(complete,undefined,focusOverride);else setError('I didn’t catch any words. Try again.');"),
+            ("if(audio.size)void sendPreview(undefined,audio);else setError('No audio was recorded.');", "if(audio.size)void sendPreview(undefined,audio,focusOverride);else setError('No audio was recorded.');"),
+            ("  function talkAbout(item:WorkCase){setFocusCaseId(item.id);setSelectedId(null);setCaptureMode('talk');}", "  function talkAbout(item:WorkCase){setFocusCaseId(item.id);setSelectedId(null);setCaptureMode('talk');void microphone(item.id);}"),
+            ("<button type=\"button\" className=\"talk\" onClick={()=>setCaptureMode('talk')}><Mic/><span>Talk</span></button>", "<button type=\"button\" className=\"talk\" onClick={()=>{setCaptureMode('talk');void microphone();}}><Mic/><span>Talk</span></button>"),
+            ("<h2>{captureMode==='talk'?(recording?'I’m listening.':'Talk to Orbit'):'Type to Orbit'}</h2>", "<h2>{captureMode==='talk'?(starting?'Starting microphone…':recording?'I’m listening.':'Talk to Orbit'):'Type to Orbit'}</h2>"),
+            ("disabled={recording||busy} onClick={()=>setCaptureMode(null)}", "disabled={starting||recording||busy} onClick={()=>setCaptureMode(null)}"),
+            ("{recording?Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0')+' · Tap when done':busy?'Building your review…':'Tap to record'}", "{starting?'Starting…':recording?Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0')+' · Tap when done':busy?'Building your review…':'Tap to try again'}"),
+            ("<Button onClick={()=>{setSuccess(null);setCaptureMode('talk');}}>Add Another Update</Button>", "<Button onClick={()=>{setSuccess(null);setCaptureMode('talk');void microphone(success.caseId);}}>Add Another Update</Button>"),
+          ]
+          for old,new in replacements:
+            if old in s:
+              s=s.replace(old,new,1)
+            elif new not in s:
+              raise SystemExit('Expected source not found: '+old[:100])
+          p.write_text(s)
+          PY
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add app/work-toolbox.tsx
+            git commit -m "Start Work recording from one tap"
+            git push
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+        env:
+          TOOLBOX_BASE_PATH: /dylans-toolbox/
