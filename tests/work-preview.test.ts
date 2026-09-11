@@ -16,6 +16,13 @@ test('accepts a versioned proposal for an existing Work file',()=>{
   assert.equal(result.proposals[0].case_number,'G26-0441');
 });
 
+test('normalizes harmless ball-owner inconsistencies instead of rejecting the Work update',()=>{
+  const newCase={...proposal(),case_id:null,expected_updated_at:null,case_number:'G26-0454',title:'G26-0454 · 7691 Asheville Highway',workflow_state:'todo' as const,ball_owner:'me' as const,ball_with:"Jeannie's office",current_situation:'File needs to be placed in Jeannie’s office.',next_action:'Put the file in Jeannie’s office.',event_kind:'action' as const,event_summary:'Need to put the file in Jeannie’s office.',confirmation_question:'Put G26-0454 in To Do for placing the file in Jeannie’s office — is that right?'};
+  const result=validateWorkPreview({kind:'changes',headline:'One file update',answer:null,commit_reply:'Saved.',proposals:[newCase]},new Map());
+  assert.equal(result.proposals[0].ball_owner,'me');
+  assert.equal(result.proposals[0].ball_with,null);
+});
+
 test('rejects stale versions so confirmation cannot overwrite newer file data',()=>{
   const stale={...proposal(),expected_updated_at:'2026-09-11T13:30:00.000Z'};
   assert.throws(()=>validateWorkPreview({kind:'changes',headline:'One file update',answer:null,commit_reply:'Saved.',proposals:[stale]},new Map([[existing.id,existing]])));
