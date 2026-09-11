@@ -20,7 +20,7 @@ type SpeechEventLike={resultIndex:number;results:ArrayLike<SpeechResultLike>};
 type SpeechRecognitionLike={continuous:boolean;interimResults:boolean;lang:string;onresult:((event:SpeechEventLike)=>void)|null;onerror:(()=>void)|null;onend:(()=>void)|null;start:()=>void;stop:()=>void;abort:()=>void};
 type SpeechRecognitionWindow=Window&{SpeechRecognition?:new()=>SpeechRecognitionLike;webkitSpeechRecognition?:new()=>SpeechRecognitionLike};
 type WorkAnswer={kind:'work_answer';turn_id:string;answer:string;reply:string};
-type WorkResponse=(WorkPreviewReceipt|WorkCommitReceipt|WorkAnswer|{discarded:true}|{error:string;kind?:string;turn_id?:string;revision?:number;preview?:WorkPreviewReceipt['preview']})&{error?:string};
+type WorkResponse={kind?:'work_preview'|'work_commit'|'work_answer';turn_id?:string;revision?:number;preview?:WorkPreviewReceipt['preview'];answer?:string;reply?:string;case_ids?:string[];cases?:WorkCase[];discarded?:boolean;error?:string};
 
 const groups:{state:WorkState;label:string;help:string;icon:typeof Check}[]=[
   {state:'todo',label:'To Do',help:'The ball is with you.',icon:Check},
