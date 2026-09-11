@@ -1,5 +1,5 @@
 import { createRoot } from 'react-dom/client';
-import Toolbox from './toolbox';
+import WorkspaceGate from './workspace-gate';
 import './globals.css';
 
-createRoot(document.getElementById('root')!).render(<Toolbox />);
+createRoot(document.getElementById('root')!).render(<WorkspaceGate />);
