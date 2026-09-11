@@ -30,10 +30,17 @@ p { margin:0; }
 .mic-button.recording { background:#b42338; animation:breathe 1.5s ease-in-out infinite; }
 .capture-label { font-weight:600; font-size:1rem; }
 .capture-secondary { margin:12px 0 0; display:flex; justify-content:center; }
-.assistant-bubble { position:fixed; z-index:40; top:calc(78px + env(safe-area-inset-top)); right:max(16px,calc((100vw - 740px)/2 + 24px)); width:min(320px,calc(100vw - 44px)); padding:13px 16px; background:#172e56; color:#fff; border-radius:18px 6px 18px 18px; box-shadow:0 10px 30px #172e5633; }
+.orbit-reply { position:fixed; z-index:40; top:calc(78px + env(safe-area-inset-top)); right:max(16px,calc((100vw - 740px)/2 + 24px)); display:flex; flex-direction:column; align-items:flex-end; gap:9px; }
+.orbit-button { position:relative; width:48px; height:48px; display:grid; place-items:center; border:0; border-radius:50%; background:#172e56; color:#fff; box-shadow:0 8px 24px #172e5633; }
+.orbit-button svg { width:22px; height:22px; }
+.orbit-button.unread { box-shadow:0 0 0 4px #dce8ff,0 8px 24px #172e5633; }
+.orbit-dot { position:absolute; top:1px; right:1px; width:12px; height:12px; border:2px solid #fff; border-radius:50%; background:#e04f5f; }
+.assistant-bubble { position:relative; width:min(320px,calc(100vw - 44px)); padding:15px 42px 15px 16px; background:#172e56; color:#fff; border-radius:18px 6px 18px 18px; box-shadow:0 10px 30px #172e5633; }
 .assistant-bubble strong { display:block; font-size:.78rem; letter-spacing:.04em; margin-bottom:3px; }
 .assistant-bubble p { font-size:.92rem; line-height:1.42; max-height:8.6em; overflow:auto; }
 .assistant-bubble.question { background:#7b4a11; }
+.orbit-close { position:absolute; top:6px; right:6px; width:34px; height:34px; display:grid; place-items:center; border:0; border-radius:50%; background:transparent; color:inherit; }
+.orbit-close svg { width:17px; height:17px; }
 .live-review { margin-top:18px; padding:18px; background:#fff; border:1px solid var(--border); border-radius:18px; }
 .live-review .section-heading { margin-bottom:10px; }
 .live-review .section-heading h2 { font-size:1rem; }
