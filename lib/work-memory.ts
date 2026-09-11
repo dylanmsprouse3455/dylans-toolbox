@@ -50,10 +50,30 @@ export async function workMemoryContext(client:SupabaseClient,text:string,focusC
   };
 }
 
+function normalizeProposalSemantics(proposal:ReturnType<typeof workPreview.parse>['proposals'][number]){
+  if(proposal.status==='completed'){
+    proposal.ball_owner='none';
+    proposal.ball_with=null;
+    return;
+  }
+  if(proposal.workflow_state==='waiting'){
+    proposal.ball_owner='other';
+    return;
+  }
+  if(proposal.workflow_state==='watching'){
+    proposal.ball_owner='watching';
+    proposal.ball_with=null;
+    return;
+  }
+  proposal.ball_owner='me';
+  proposal.ball_with=null;
+}
+
 export function validateWorkPreview(raw:unknown,candidates:Map<string,WorkCase>){
   const preview=workPreview.parse(raw);
   const seen=new Set<string>();
   for(const proposal of preview.proposals){
+    normalizeProposalSemantics(proposal);
     if(proposal.case_id){
       const prior=candidates.get(proposal.case_id);
       if(!prior||seen.has(prior.id)||proposal.expected_updated_at!==prior.updated_at)throw new Error('ORGANIZE');
@@ -63,9 +83,6 @@ export function validateWorkPreview(raw:unknown,candidates:Map<string,WorkCase>)
       if(proposal.expected_updated_at!==null)throw new Error('ORGANIZE');
       if(proposal.case_number&&[...candidates.values()].some(item=>item.case_number===proposal.case_number))throw new Error('ORGANIZE');
     }
-    if(proposal.status==='completed'&&proposal.ball_owner!=='none')throw new Error('ORGANIZE');
-    if(proposal.status==='active'&&proposal.ball_owner==='none')throw new Error('ORGANIZE');
-    if(proposal.ball_owner!=='other'&&proposal.ball_with!==null)throw new Error('ORGANIZE');
   }
   return preview;
 }
