@@ -13,6 +13,12 @@ import {appBase,captureUrl,publicConfig} from '@/lib/public-config';
 import {AREAS,actionable,attention,dueLabel,dueTime,quadrant,type Area,type Item,type ItemType} from '@/lib/items';
 import {acceptCapture,cachedItems,cachedTurn,displayTurn,capturesFor,changesFor,putLocal,removeLocal,type Capture,type Change,type TurnReceipt,type AssistantTurn} from '@/lib/local';
 import {speakReply,stopSpeaking} from '@/lib/speech';
+import {appendSpeech,thoughtLines} from '@/lib/live-speech';
+
+type SpeechResultLike={isFinal:boolean;0:{transcript:string};length:number};
+type SpeechEventLike={resultIndex:number;results:ArrayLike<SpeechResultLike>};
+type SpeechRecognitionLike={continuous:boolean;interimResults:boolean;lang:string;onresult:((event:SpeechEventLike)=>void)|null;onerror:(()=>void)|null;onend:(()=>void)|null;start:()=>void;stop:()=>void;abort:()=>void};
+type SpeechRecognitionWindow=Window&{SpeechRecognition?:new()=>SpeechRecognitionLike;webkitSpeechRecognition?:new()=>SpeechRecognitionLike};
 
 const areaIcons={Work:BriefcaseBusiness,Home:House,Money:Wallet,Personal:UserRound,People:Users,Projects:Folder,Ideas:Lightbulb,Inbox};
 const errorText=(e:unknown)=>e instanceof Error?e.message:'Something went wrong. Please try again.';
@@ -30,6 +36,7 @@ export default function Toolbox(){
   const [sheet,setSheet]=useState<'write'|'account'|'pending'|null>(null);
   const [draft,setDraft]=useState(''),[selected,setSelected]=useState<string|null>(null);
   const [recording,setRecording]=useState(false),[seconds,setSeconds]=useState(0),[starting,setStarting]=useState(false);
+  const [liveTranscript,setLiveTranscript]=useState(''),[interimTranscript,setInterimTranscript]=useState(''),[liveWordsAvailable,setLiveWordsAvailable]=useState(true);
   const [email,setEmail]=useState(''),[password,setPassword]=useState('');
   const [settingPassword,setSettingPassword]=useState(()=>typeof location!=='undefined'&&['invite','recovery'].includes(new URLSearchParams(location.hash.slice(1)).get('type')||''));
   const [authBusy,setAuthBusy]=useState(false),[authMessage,setAuthMessage]=useState('');
@@ -40,6 +47,7 @@ export default function Toolbox(){
   const clientRef=useRef<SupabaseClient|null>(null),sessionRef=useRef<Session|null>(null),itemsRef=useRef<Item[]>([]);
   const lock=useRef(false),refreshLock=useRef(false),recorder=useRef<MediaRecorder|null>(null);
   const recordingOwner=useRef<string|null>(null),recTimer=useRef<ReturnType<typeof setInterval>|null>(null);
+  const recognition=useRef<SpeechRecognitionLike|null>(null),liveTranscriptRef=useRef('');
   const unmounted=useRef(false);
   const actionRef=useRef<(text:string)=>Promise<void>>(async()=>{});
   const authGeneration=useRef(0);
@@ -155,7 +163,7 @@ export default function Toolbox(){
     const connection=()=>setOnline(navigator.onLine);
     window.addEventListener('online',connection);window.addEventListener('offline',connection);
     return()=>{unmounted.current=true;unsubscribe?.();window.removeEventListener('online',connection);window.removeEventListener('offline',connection);
-      if(recorder.current?.state==='recording')recorder.current.stop();stopSpeaking();};
+      if(recorder.current?.state==='recording')recorder.current.stop();recognition.current?.abort();stopSpeaking();};
   },[updateItems,updatePending]);
   useEffect(()=>{
     if(!session)return;
@@ -225,17 +233,33 @@ export default function Toolbox(){
       const mime=['audio/mp4','audio/webm;codecs=opus','audio/webm'].find(type=>MediaRecorder.isTypeSupported(type));
       const rec=new MediaRecorder(stream,mime?{mimeType:mime}:undefined),chunks:Blob[]=[];
       const capturedAt=new Date().toISOString();
-      recordingOwner.current=owner;recorder.current=rec;setSeconds(0);
+      recordingOwner.current=owner;recorder.current=rec;setSeconds(0);liveTranscriptRef.current='';setLiveTranscript('');setInterimTranscript('');setLiveWordsAvailable(true);
       rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};
       rec.onerror=()=>{setError('Recording was interrupted. Any recorded audio will be kept.');if(rec.state!=='inactive')rec.stop();};
       rec.onstop=async()=>{
         if(recTimer.current)clearInterval(recTimer.current);
+        recognition.current?.stop();recognition.current=null;setInterimTranscript('');
         stream?.getTracks().forEach(t=>t.stop());setRecording(false);
         const audio=new Blob(chunks,{type:rec.mimeType||mime||'audio/mp4'});
         if(!audio.size){setError('No audio was recorded. Please try again.');return;}
         try{await queue({id:crypto.randomUUID(),user_id:owner,audio,captured_at:capturedAt,time_zone:Intl.DateTimeFormat().resolvedOptions().timeZone,...conversation});}
         catch(e){setError(errorText(e));}
       };
+      const Recognition=(window as SpeechRecognitionWindow).SpeechRecognition??(window as SpeechRecognitionWindow).webkitSpeechRecognition;
+      if(Recognition){
+        const live=new Recognition();recognition.current=live;live.continuous=true;live.interimResults=true;live.lang='en-US';
+        live.onresult=event=>{
+          let final='',interim='';
+          for(let i=event.resultIndex;i<event.results.length;i++){
+            const words=event.results[i][0]?.transcript??'';
+            if(event.results[i].isFinal)final=appendSpeech(final,words);else interim=appendSpeech(interim,words);
+          }
+          if(final){liveTranscriptRef.current=appendSpeech(liveTranscriptRef.current,final);setLiveTranscript(liveTranscriptRef.current);}
+          setInterimTranscript(interim);
+        };
+        live.onerror=()=>setLiveWordsAvailable(false);live.onend=()=>{recognition.current=null;};
+        try{live.start();}catch{setLiveWordsAvailable(false);}
+      }else setLiveWordsAvailable(false);
       rec.start(1000);setRecording(true);setSheet(null);setSelected(null);setView('talk');
       let elapsed=0;recTimer.current=setInterval(()=>{elapsed++;setSeconds(elapsed);if(elapsed>=300&&rec.state==='recording')rec.stop();},1000);
     }catch(e){stream?.getTracks().forEach(t=>t.stop());setError(e instanceof DOMException&&e.name==='NotAllowedError'?'Microphone access is off. Allow it in Safari’s website settings, or type your thought.':errorText(e));}
@@ -354,6 +378,13 @@ export default function Toolbox(){
           <div className="capture-label" aria-live="polite">{recording?Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0')+' · Tap to finish':'Tap to talk'}</div>
           <div className="capture-secondary"><Button variant="ghost" disabled={recording} onClick={()=>setSheet(session?'write':'account')}><PenLine/>Or type a thought</Button></div>
         </section>
+        {(recording||liveTranscript||interimTranscript)&&<section className="live-review" aria-live="polite" aria-label="Live recording review">
+          <div className="section-heading"><h2>Live review</h2><span className="muted">Not saved yet</span></div>
+          {thoughtLines(liveTranscript,interimTranscript).map((line,index)=><p className={'live-thought '+(index===thoughtLines(liveTranscript,interimTranscript).length-1&&!!interimTranscript?'interim':'')} key={index}>{line}</p>)}
+          {!liveWordsAvailable&&<p className="muted">Live words aren’t available here, but your recording is still being captured.</p>}
+          {liveWordsAvailable&&!liveTranscript&&!interimTranscript&&<p className="muted">Start speaking. Your words will appear here.</p>}
+          <p className="live-hint">Keep talking to correct or add details. The Toolbox organizes everything when you tap to finish.</p>
+        </section>}
         <p className="quiet-note">Your reply will appear in the corner and play aloud.</p>
       </TabsContent>
       <TabsContent value="areas">
