@@ -61,7 +61,7 @@ export default function WorkToolbox(){
   const [session,setSession]=useState<Session|null>(null),[ready,setReady]=useState(false);
   const [section,setSection]=useState<SectionKey>('todo'),[success,setSuccess]=useState<WorkSuccess|null>(null);
   const [captureMode,setCaptureMode]=useState<'talk'|'type'|null>(null);
-  const [cases,setCases]=useState<WorkCase[]>([]),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false);
+  const [cases,setCases]=useState<WorkCase[]>([]),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[reviewProgress,setReviewProgress]=useState(0);
   const [reply,setReply]=useState(''),[error,setError]=useState('');
   const [draft,setDraft]=useState(''),[recording,setRecording]=useState(false),[starting,setStarting]=useState(false),[seconds,setSeconds]=useState(0);
   const [liveTranscript,setLiveTranscript]=useState(''),[interim,setInterim]=useState(''),[pendingAudio,setPendingAudio]=useState<Blob|null>(null);
@@ -118,6 +118,12 @@ export default function WorkToolbox(){
   },[refresh,recoverWizard]);
   useEffect(()=>{const wake=()=>void refresh();const timer=setInterval(wake,30000);window.addEventListener('focus',wake);return()=>{clearInterval(timer);window.removeEventListener('focus',wake);};},[refresh]);
   useEffect(()=>{if(selectedId)void loadEvents(selectedId);else setEvents([]);},[selectedId,loadEvents]);
+  useEffect(()=>{
+    if(!busy){setReviewProgress(0);return;}
+    setReviewProgress(value=>Math.max(value,8));
+    const timer=setInterval(()=>setReviewProgress(value=>value>=92?92:Math.min(92,value+Math.max(1,Math.round((92-value)*.08)))),450);
+    return()=>clearInterval(timer);
+  },[busy]);
 
   async function signIn(e:React.FormEvent){
     e.preventDefault();setAuthBusy(true);setError('');
@@ -149,7 +155,7 @@ export default function WorkToolbox(){
   }
 
   async function retryCapture(id:string){
-    setBusy(true);setError('');
+    setReviewProgress(48);setBusy(true);setError('');
     try{
       const form=new FormData();form.set('mode','retry');form.set('id',id);
       const {response,result}=await workRequest(form);if(!response.ok)throw new Error(result.error||'Could not organize the saved text.');
@@ -161,7 +167,7 @@ export default function WorkToolbox(){
 
   async function sendPreview(text?:string,audio?:Blob,focusOverride?:string|null){
     const owner=sessionRef.current?.user.id;if(!owner||!text?.trim()&&!audio&&!pendingRef.current)return;
-    setSuccess(null);setBusy(true);setError('');setReply('');
+    setSuccess(null);setReviewProgress(8);setBusy(true);setError('');setReply('');
     let transcribed=false;
     try{
       const focus=focusOverride===undefined?focusCaseId:focusOverride;
@@ -173,13 +179,13 @@ export default function WorkToolbox(){
       if(pending.text)form.set('text_json',JSON.stringify(pending.text));else if(audio)form.set('audio',audio,'work-recording');
       const {response,result}=await workRequest(form);
       if(typeof result.transcript==='string'){
-        transcribed=true;form.delete('audio');audio=undefined;setPendingAudio(null);pendingRef.current={...pending,text:result.transcript};setDraft(result.transcript);setLiveTranscript(result.transcript);
+        transcribed=true;setReviewProgress(36);form.delete('audio');audio=undefined;setPendingAudio(null);pendingRef.current={...pending,text:result.transcript};setDraft(result.transcript);setLiveTranscript(result.transcript);
         // The server has already saved this transcript; keep a text-only device copy too.
         await savePendingWorkText(pendingRef.current);
       }
       if(!response.ok)throw new Error(result.error||'Could not save that Work capture.');
       if(!transcribed)throw new Error('No transcript returned. Retry this capture.');
-      const review=new FormData();review.set('mode','retry');review.set('id',pending.id);
+      setReviewProgress(value=>Math.max(value,48));const review=new FormData();review.set('mode','retry');review.set('id',pending.id);
       const reviewed=await workRequest(review);if(!reviewed.response.ok)throw new Error(reviewed.result.error||'Could not organize that capture. Your text is saved.');
       acceptWorkResult(reviewed.result);await removePendingWorkText(pending.id,owner);
       pendingRef.current=null;setRecoverable(false);setDraft('');setLiveTranscript('');setInterim('');setPendingAudio(null);
@@ -291,6 +297,8 @@ export default function WorkToolbox(){
   const selected=cases.find(item=>item.id===selectedId)??null;
   const currentProposal:WorkProposal|undefined=wizard?.preview.proposals[wizardIndex];
   const SectionIcon=currentSection.icon;
+  const reviewStage=reviewProgress<34?'Saving your words…':reviewProgress<72?'Organizing your update…':'Checking the details…';
+  const reviewProgressView=<div className="work-review-progress" role="status" aria-live="polite"><span className="work-review-progress-icon"><Sparkles/></span><div className="work-review-progress-copy"><strong>{reviewStage}</strong><span>{recoverable?'Your transcript is saved while Orbit works.':'Orbit is preparing your review.'}</span></div><strong className="work-review-progress-percent">{reviewProgress}%</strong><div className="work-review-progress-track" role="progressbar" aria-label="Preparing Work review" aria-valuemin={0} aria-valuemax={100} aria-valuenow={reviewProgress}><span style={{width:reviewProgress+'%'}}/></div></div>;
 
   if(!ready)return <main className="work-toolbox"><p className="work-loading">Opening Work…</p></main>;
   if(!session)return <main className="work-toolbox"><section className="work-login"><BriefcaseBusiness/><h1>Work</h1><p>Sign in to open your private Work command center.</p><form onSubmit={e=>void signIn(e)}><label>Email<Input type="email" required value={email} onChange={e=>setEmail(e.target.value)}/></label><label>Password<Input type="password" required value={password} onChange={e=>setPassword(e.target.value)}/></label>{error&&<p className="work-error">{error}</p>}<Button type="submit" disabled={authBusy}>{authBusy?<LoaderCircle className="spinning"/>:'Sign in'}</Button></form></section></main>;
@@ -326,14 +334,13 @@ export default function WorkToolbox(){
         <div className="work-capture-sheet-top"><div><p className="work-step">Update Work</p><h2>{captureMode==='talk'?(starting?'Starting microphone…':recording?'I’m listening.':'Talk to Orbit'):'Type to Orbit'}</h2><p>{focusCaseId?'Current file: '+(cases.find(item=>item.id===focusCaseId)?.case_number||cases.find(item=>item.id===focusCaseId)?.title||'selected file')+'. ':''}Nothing changes until you confirm the wizard.</p></div><Button size="icon" variant="ghost" aria-label="Close update" disabled={starting||recording||busy} onClick={()=>setCaptureMode(null)}><X/></Button></div>
         {focusCaseId&&<button type="button" className="work-focus-clear" onClick={()=>setFocusCaseId(null)}>Clear file context</button>}
         {captureMode==='talk'?<>
-          <Button className={'work-mic '+(recording?'recording':'')} onClick={()=>void microphone()} disabled={starting||recoverable||busy&&!recording}>{starting||busy&&!recording?<LoaderCircle className="spinning"/>:recording?<Square fill="currentColor"/>:<Mic/>}</Button>
-          <p className="work-mic-label">{starting?'Starting…':recording?Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0')+' · Tap when done':busy?'Building your review…':'Tap to try again'}</p>
+          {busy?reviewProgressView:<><Button className={'work-mic '+(recording?'recording':'')} onClick={()=>void microphone()} disabled={starting||recoverable}>{starting?<LoaderCircle className="spinning"/>:recording?<Square fill="currentColor"/>:<Mic/>}</Button><p className="work-mic-label">{starting?'Starting…':recording?Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0')+' · Tap when done':'Tap to try again'}</p></>}
           {recording&&(liveTranscript||interim)&&<div className="work-live">{normalizeWorkCaseNumbers(liveTranscript)}{interim&&<span> {interim}</span>}</div>}
           {recoverable&&!pendingAudio&&!busy&&<Button variant="outline" onClick={()=>void sendPreview()}>Retry saved text</Button>}
           {pendingAudio&&!busy&&<Button variant="outline" onClick={()=>void sendPreview(undefined,pendingAudio)}>Retry transcription</Button>}
         </>:<>
           {!busy&&<form className="work-type compact" onSubmit={e=>{e.preventDefault();void sendPreview(draft);}}><Textarea autoFocus placeholder="Tell Orbit what happened, or ask where a file stands…" value={draft} readOnly={recoverable} onChange={e=>setDraft(e.target.value)} maxLength={30000}/><Button type="submit" disabled={!draft.trim()}><PenLine/>{recoverable?'Retry saved text':'Review with Orbit'}</Button></form>}
-          {busy&&<p className="work-loading"><LoaderCircle className="spinning"/> Building your review…</p>}
+          {busy&&reviewProgressView}
         </>}
       </section>
     </div>}
