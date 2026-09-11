@@ -2,7 +2,7 @@ import {createClient} from '@supabase/supabase-js';
 import {captureInstructions,organizedCapture,outputSchema} from './capture-schema.ts';
 import {z} from 'zod';
 import {conversationContext,checkedChanges} from './conversation.ts';
-import {normalizeWorkCaseNumbers,workState,withWorkState} from './work-context.ts';
+import {isManagedWorkContent,normalizeWorkCaseNumbers,workState,withWorkState} from './work-context.ts';
 const metadata=z.object({id:z.string().uuid(),captured_at:z.string().datetime({offset:true}),time_zone:z.string().min(1).max(100)});
 const workMarker=/^WORK_STATE:\s*(todo|waiting|watching|follow_up)\s*\n?/i;
 export type CaptureConfig={SUPABASE_URL?:string;SUPABASE_ANON_KEY?:string;OPENAI_API_KEY?:string;OPENAI_MODEL?:string};
@@ -81,12 +81,17 @@ export async function handleCapture(request:Request,c:CaptureConfig){
     if(workspace==='work'){
       for(const item of organized.items){
         item.area='Work';
+        if(!isManagedWorkContent(item.content))throw new Error('ORGANIZE');
         item.content=withWorkState(item.content,workState(item.content));
-        for(const sub of item.subtasks){sub.area='Work';sub.content=withWorkState(sub.content,workState(sub.content));}
+        for(const sub of item.subtasks){
+          sub.area='Work';
+          if(!isManagedWorkContent(sub.content))throw new Error('ORGANIZE');
+          sub.content=withWorkState(sub.content,workState(sub.content));
+        }
       }
       for(const change of organized.updates){
         const prior=context.candidates.get(change.item_id);
-        if(!prior||prior.area!=='Work')throw new Error('ORGANIZE');
+        if(!prior||prior.area!=='Work'||!isManagedWorkContent(prior.content))throw new Error('ORGANIZE');
         if(change.area!==null)change.area='Work';
         if(change.content!==null&&!workMarker.test(change.content))change.content=withWorkState(change.content,workState(prior.content));
       }
