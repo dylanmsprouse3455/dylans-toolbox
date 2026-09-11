@@ -14,6 +14,10 @@ export function normalizeWorkCaseNumbers(input:string){
 
 const statePattern=/^WORK_STATE:\s*(todo|waiting|watching|follow_up)\s*\n?/i;
 
+export function isManagedWorkContent(content:string){
+  return statePattern.test(content);
+}
+
 export function workState(content:string):WorkState{
   const match=content.match(statePattern);
   return match?.[1]?.toLowerCase() as WorkState||'todo';
