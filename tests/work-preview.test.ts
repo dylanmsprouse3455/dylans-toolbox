@@ -86,3 +86,14 @@ test('instructions cover phases facts evidence isolation conditions and approved
   assert.match(instructions,/answer_status/);
   assert.match(instructions,/payoff ordered means waiting on the servicer/);
 });
+
+test('a paraphrased duplicate report reuses known evidence and leaves current facts/follow-ups alone',()=>{
+  const event={id:'44444444-4444-4444-8444-444444444444',case_id:existing.id,kind:'request',summary:'Requested LLC documents from Mike.',occurred_at:existing.last_event_at};
+  const row={...proposal(),duplicate_event_id:event.id,event_summary:'Asked Mike to send the company paperwork.',current_situation:'Mike has not sent the company papers yet.',fact_changes:[{action:'upsert' as const,key:'property_address',value:'1445 Old Jonesboro Road',aliases:[],confidence:'high' as const}]};
+  const fact={id:'55555555-5555-4555-8555-555555555555',user_id:existing.user_id,case_id:existing.id,fact_key:'property_address',fact_value:'1445 Old Jonesboro Rd',normalized_value:'1445oldjonesborord',aliases_text:'',confidence:'high' as const,source_capture_id:null,source_event_id:null,active:true,created_at:existing.created_at,updated_at:existing.updated_at};
+  const result=validateWorkPreview(changes([row]),new Map([[existing.id,existing]]),new Map([[event.id,event]]),[fact]);
+  assert.equal(result.kind,'answer');assert.equal(result.proposals.length,0);
+  assert.throws(()=>validateWorkPreview(changes([row]),new Map([[existing.id,existing]]),new Map()),/ORGANIZE/);
+  const nextAttempt=validateWorkPreview(changes([{...proposal(),event_summary:'Called Mike again today.',duplicate_event_id:null}]),new Map([[existing.id,existing]]),new Map([[event.id,event]]));
+  assert.equal(nextAttempt.kind,'changes','A new occurrence is still a real timeline update');
+});
