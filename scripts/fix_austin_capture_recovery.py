@@ -19,7 +19,7 @@ replace_once('lib/work-organized.ts',
 "import {z} from 'zod';\nimport {normalizeWorkCaseNumbers} from './work-context.ts';")
 replace_once('lib/work-organized.ts',
 "    item.source_excerpt=exactExcerpt;\n    if(item.date_wording){",
-"    item.source_excerpt=exactExcerpt;\n    const sourceCaseNumbers=[...new Set(normalizeWorkCaseNumbers(item.source_excerpt).toUpperCase().match(/G\\d{2}-\\d{4}/g)??[])];\n    if(sourceCaseNumbers.length)item.case_numbers=sourceCaseNumbers;\n    if(item.date_wording){")
+"    item.source_excerpt=exactExcerpt;\n    const sourceCaseNumbers=[...new Set(normalizeWorkCaseNumbers(item.source_excerpt).toUpperCase().match(/G\\d{2}-\\d{4}/g)??[])];\n    if(item.case_numbers.length&&sourceCaseNumbers.length)item.case_numbers=sourceCaseNumbers;\n    if(item.date_wording){")
 
 replace_once('lib/work-preview-schema.ts',
 "    'The input contains intent_hint from a deterministic classifier. Respect action when intent_hint=action unless the words unmistakably ask Orbit for information. Respect question when intent_hint=question unless the user explicitly assigns themselves an action. mixed/unclear requires normal reasoning and may require a confirmation question.',",
