@@ -400,17 +400,14 @@ export default function Toolbox(){
           <Button className={'mic-button '+(recording?'recording':'')} onClick={()=>void microphone()} disabled={starting||!ready||busy&&!recording} aria-label={recording?'Stop recording to review':'Start voice capture'}>
             {starting?<LoaderCircle className="spinning"/>:recording?<Square fill="currentColor"/>:<Mic/>}
           </Button>
-          <div className="capture-label" aria-live="polite">{recording?Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0')+' · Tap to review':reviewDraft?'Draft ready for you':'Tap to talk'}</div>
+          <div className="capture-label" aria-live="polite">{recording?Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0')+' · Tap when done':reviewDraft?'Ready when you are':'Tap to talk'}</div>
           {!recording&&!reviewDraft&&<div className="capture-secondary"><Button variant="ghost" onClick={()=>setSheet(session?'write':'account')}><PenLine/>Or type a thought</Button></div>}
         </section>
-        {(recording||reviewDraft)&&<section className="live-review" aria-live="polite" aria-label="Live recording notes">
-          <div className="section-heading"><h2>{recording?'Your words':'Review the draft'}</h2><span className="muted">Nothing saved yet</span></div>
-          <div className="live-transcript">{appendSpeech(recording?liveTranscript:reviewDraft,interimTranscript)||'Start speaking. I’m taking notes.'}</div>
-          <h3 className="notes-heading">Draft notes</h3>
-          <ul className="draft-notes">{liveNotes.map((line,index)=><li className={index===liveNotes.length-1&&!!interimTranscript?'interim':''} key={index}>{line}</li>)}</ul>
-          {!recording&&<Textarea aria-label="Edit draft before approval" value={reviewDraft} onChange={e=>{setReviewDraft(e.target.value);setLiveTranscript(e.target.value);}} maxLength={30000}/>} 
+        {(recording||reviewDraft)&&<section className="live-review" aria-live="polite" aria-label="Orbit’s notes">
+          <div className="section-heading"><h2>Orbit’s notes</h2><span className="muted">Nothing saved yet</span></div>
+          {recording?<ul className="draft-notes live">{liveNotes.length?liveNotes.map((line,index)=><li className={index===liveNotes.length-1&&!!interimTranscript?'interim':''} key={index}>{line}</li>):<li className="interim">Start speaking. I’m taking notes.</li>}</ul>:<Textarea aria-label="Edit Orbit’s notes before saving" value={reviewDraft} onChange={e=>{setReviewDraft(e.target.value);setLiveTranscript(e.target.value);}} maxLength={30000}/>} 
           {!liveWordsAvailable&&recording&&<p className="muted">I’m still listening. Tap to review the recording when you finish.</p>}
-          {recording?<p className="live-hint">Correct me by continuing to talk. Nothing changes until you approve the notes.</p>:<div className="review-actions"><Button onClick={()=>void approveReview()} disabled={!reviewDraft.trim()||busy}><Check/>Approve and organize</Button><Button variant="outline" onClick={()=>void microphone()} disabled={starting||busy}><Mic/>Keep talking</Button></div>}
+          {recording?<p className="live-hint">If something is wrong, keep talking and correct it. Nothing is saved until you tap Done.</p>:<div className="review-actions"><Button onClick={()=>void approveReview()} disabled={!reviewDraft.trim()||busy}><Check/>Done</Button><Button variant="outline" onClick={()=>void microphone()} disabled={starting||busy}><Mic/>Keep talking</Button></div>}
         </section>}
         {!recording&&!reviewDraft&&<p className="quiet-note">When Orbit has something to say, a message indicator will appear in the corner.</p>}
       </TabsContent>
