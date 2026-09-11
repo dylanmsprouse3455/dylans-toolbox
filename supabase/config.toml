@@ -1,0 +1,6 @@
+project_id = "uouzmmexjundpfitogky"
+
+[functions.capture]
+verify_jwt = true
+entrypoint = "./functions/capture/index.ts"
+import_map = "./functions/capture/deno.json"
