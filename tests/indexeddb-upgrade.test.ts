@@ -29,6 +29,8 @@ test('repairs a version-1 Toolbox database that is missing newer object stores w
   await deleteDb();
   await makeLegacyDb();
 
+  // Cache-bust this module so the test exercises a fresh IndexedDB connection.
+  // @ts-expect-error TypeScript does not resolve query-string module specifiers.
   const local=await import('../lib/local.ts?indexeddb-upgrade-regression');
   const captures=await local.capturesFor('owner-1');
   assert.equal(captures.length,1);
