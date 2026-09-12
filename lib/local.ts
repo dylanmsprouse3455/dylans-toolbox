@@ -6,6 +6,9 @@ export const displayTurn=(turn:TurnReceipt):AssistantTurn=>({id:turn.turn_id,rep
 export type Change={id:string;user_id:string;item_id:string;status:'active'|'completed'};
 type Store='captures'|'changes'|'cache';
 type StoredCapture=Omit<Capture,'audio'>&{audio?:Blob;audioBytes?:ArrayBuffer;audioType?:string};
+const DB_NAME='dylans-toolbox';
+const DB_VERSION=2;
+const REQUIRED_STORES:Store[]=['captures','changes','cache'];
 function storageError(error:unknown){
   const name=error&&typeof error==='object'&&'name'in error?String(error.name):'UnknownError';
   return new Error(name==='QuotaExceededError'?'Device storage is full. Download a copy before freeing space.':'Device storage could not save this capture ('+name+'). Keep this window open and download a copy or try again.');
@@ -13,10 +16,24 @@ function storageError(error:unknown){
 let dbPromise:Promise<IDBDatabase>|undefined;
 function db() {
   return dbPromise??=new Promise((resolve,reject)=>{
-    const req=indexedDB.open('dylans-toolbox',1);
-    req.onupgradeneeded=()=>{for(const name of ['captures','changes','cache']) req.result.createObjectStore(name,{keyPath:'id'});};
-    req.onsuccess=()=>resolve(req.result);
+    const req=indexedDB.open(DB_NAME,DB_VERSION);
+    req.onupgradeneeded=()=>{
+      for(const name of REQUIRED_STORES){
+        if(!req.result.objectStoreNames.contains(name))req.result.createObjectStore(name,{keyPath:'id'});
+      }
+    };
+    req.onsuccess=()=>{
+      const database=req.result;
+      const missing=REQUIRED_STORES.filter(name=>!database.objectStoreNames.contains(name));
+      if(missing.length){
+        database.close();dbPromise=undefined;
+        reject(new Error('Device storage is missing required data stores. Close and reopen Toolbox so it can repair local storage.'));
+        return;
+      }
+      resolve(database);
+    };
     req.onerror=()=>{dbPromise=undefined;reject(new Error('Device storage is unavailable. Keep this window open and try again.'));};
+    req.onblocked=()=>{dbPromise=undefined;reject(new Error('Toolbox needs to update device storage. Close any other open Toolbox windows, then reopen it.'));};
   });
 }
 export async function putLocal(store:Store,value:unknown) {
