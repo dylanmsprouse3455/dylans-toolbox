@@ -15,7 +15,7 @@ export type Item = {
 export function actionable(item: Pick<Item,'type'>) { return item.type === 'task' || item.type === 'reminder'; }
 export function workflowState(item:Pick<Item,'workflow_state'>):PersonalWorkflowState{return item.workflow_state==='waiting'?'waiting':'active';}
 export function dueTime(item:Pick<Item,'due_at'|'due_date'>){return item.due_at?Date.parse(item.due_at):item.due_date?new Date(item.due_date+'T23:59:59').getTime():Infinity;}
-export function followUpTime(item:Pick<Item,'follow_up_at'|'follow_up_date'>){return item.follow_up_at?Date.parse(item.follow_up_at):item.follow_up_date?new Date(item.follow_up_date+'T23:59:59').getTime():Infinity;}
+export function followUpTime(item:Pick<Item,'follow_up_at'|'follow_up_date'>){return item.follow_up_at?Date.parse(item.follow_up_at):item.follow_up_date?new Date(item.follow_up_date+'T00:00:00').getTime():Infinity;}
 export function attentionTime(item:Pick<Item,'workflow_state'|'follow_up_at'|'follow_up_date'|'due_at'|'due_date'>){return workflowState(item)==='waiting'?followUpTime(item):dueTime(item);}
 export function waitingReady(item:Pick<Item,'workflow_state'|'follow_up_at'|'follow_up_date'|'updated_at'|'created_at'>,now=Date.now()){
   if(workflowState(item)!=='waiting')return true;

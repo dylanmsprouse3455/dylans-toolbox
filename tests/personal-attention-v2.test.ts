@@ -10,7 +10,7 @@ test('waiting items stay off Home until follow-up is due, then explain why they 
   const now=Date.parse('2026-09-13T16:00:00.000Z');
   const waiting=item({workflow_state:'waiting',waiting_on:'Insurance',follow_up_date:'2026-09-14',importance:5,urgency:5});
   assert.equal(attention([waiting],now).length,0);
-  const due={...waiting,follow_up_date:'2026-09-12'};
+  const due={...waiting,follow_up_date:'2026-09-13'};
   assert.equal(attention([due],now)[0]?.id,due.id);
   assert.match(attentionReason(due,now),/Follow-up/);
 });
@@ -38,5 +38,5 @@ test('Personal UI exposes dump, quick actions, Home reasons, waiting, highlight,
 
 test('migration records Personal revisions and preserves new state in backup version 3',()=>{
   const sql=fs.readFileSync(new URL('../supabase/personal-attention-v2.sql',import.meta.url),'utf8');
-  assert.match(sql,/personal_item_revisions/);assert.match(sql,/toolbox_undo_personal_item/);assert.match(sql,/'version',3/);assert.match(sql,/workflow_state/);assert.match(sql,/highlighted/);
+  assert.match(sql,/personal_item_revisions/);assert.match(sql,/toolbox_undo_personal_item/);assert.match(sql,/toolbox.skip_revision/);assert.match(sql,/'version',3/);assert.match(sql,/workflow_state/);assert.match(sql,/highlighted/);
 });

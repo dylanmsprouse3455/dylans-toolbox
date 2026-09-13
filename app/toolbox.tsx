@@ -190,7 +190,7 @@ export default function Toolbox(){
   useEffect(()=>{
     if(!session)return;
     setLoading(true);void sync().finally(()=>{setLoading(false);void runOverdueAutopilot();});
-    const wake=()=>{if(document.visibilityState==='visible')void sync();};
+    const wake=()=>{if(document.visibilityState==='visible')void sync().finally(()=>void runOverdueAutopilot());};
     const timer=setInterval(wake,60000);
     window.addEventListener('online',wake);window.addEventListener('focus',wake);document.addEventListener('visibilitychange',wake);
     const refreshTimer=setInterval(()=>{if(document.visibilityState==='visible'&&!lock.current)void refresh().catch(()=>{});},20000);

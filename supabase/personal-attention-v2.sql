@@ -40,6 +40,7 @@ create index if not exists personal_item_revisions_owner_item on public.personal
 
 create or replace function public.toolbox_record_personal_revision() returns trigger language plpgsql security definer set search_path='' as $$
 begin
+  if current_setting('toolbox.skip_revision',true)='1' then return new; end if;
   if old.area<>'Work' and old.type<>'capture' and row(old.title,old.content,old.area,old.type,old.status,old.importance,old.urgency,old.due_at,old.due_date,old.parent_id,old.depends_on_id,old.workflow_state,old.waiting_on,old.follow_up_at,old.follow_up_date,old.highlighted)
     is distinct from row(new.title,new.content,new.area,new.type,new.status,new.importance,new.urgency,new.due_at,new.due_date,new.parent_id,new.depends_on_id,new.workflow_state,new.waiting_on,new.follow_up_at,new.follow_up_date,new.highlighted) then
     insert into public.personal_item_revisions(user_id,item_id,snapshot) values(old.user_id,old.id,to_jsonb(old));
@@ -59,6 +60,7 @@ begin
   select * into revision from public.personal_item_revisions where user_id=owner_id and item_id=item_uuid order by created_at desc,id desc limit 1 for update;
   if not found then raise exception 'Nothing to undo'; end if;
   snap=revision.snapshot;
+  perform set_config('toolbox.skip_revision','1',true);
   update public.items set
     title=snap->>'title',content=coalesce(snap->>'content',''),area=snap->>'area',type=snap->>'type',status=snap->>'status',
     importance=coalesce((snap->>'importance')::smallint,1),urgency=coalesce((snap->>'urgency')::smallint,1),
@@ -68,6 +70,7 @@ begin
     follow_up_at=nullif(snap->>'follow_up_at','')::timestamptz,follow_up_date=nullif(snap->>'follow_up_date','')::date,
     highlighted=coalesce((snap->>'highlighted')::boolean,false)
   where id=item_uuid and user_id=owner_id and area<>'Work';
+  perform set_config('toolbox.skip_revision','0',true);
   delete from public.personal_item_revisions where id=revision.id and user_id=owner_id;
   return query select * from public.items where id=item_uuid and user_id=owner_id;
 end $$;
