@@ -20,6 +20,7 @@ jobs:
         run: |
           python3 scripts/repair-personal-visual-script.py
           python3 scripts/add-personal-visual-library.py
+          python3 scripts/fix-visual-library-build.py
       - name: Install
         run: npm ci
       - name: Test
@@ -28,10 +29,10 @@ jobs:
         run: npm run build
       - name: Commit implementation only
         run: |
-          rm scripts/add-personal-visual-library.py scripts/repair-personal-visual-script.py .github/workflows/add-personal-visual-library.yml
+          rm scripts/add-personal-visual-library.py scripts/repair-personal-visual-script.py scripts/fix-visual-library-build.py .github/workflows/add-personal-visual-library.yml
           git config user.name dylanmsprouse3455
           git config user.email dylanm.sprouse3455@gmail.com
-          git add app/toolbox.tsx app/toolbox.css lib/items.ts lib/capture-schema.ts lib/conversation.ts lib/capture-handler.ts supabase/personal-visual-library.sql tests/personal-visual-library.test.ts
+          git add app/toolbox.tsx app/toolbox.css lib/items.ts lib/capture-schema.ts lib/conversation.ts lib/capture-handler.ts supabase/personal-visual-library.sql tests/personal-visual-library.test.ts tests/conversation.test.ts
           git diff --cached --check
           git diff --cached --stat
           git commit -m "Add private Personal visual library"
