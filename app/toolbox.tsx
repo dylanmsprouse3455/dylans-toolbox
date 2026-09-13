@@ -466,17 +466,17 @@ export default function Toolbox(){
       </SheetContent>
     </Sheet>
     <Sheet open={!!current} onOpenChange={open=>{if(!open)setSelected(null);}}>
-      <SheetContent side="bottom" className="detail-sheet">
+      <SheetContent side="bottom" className={editing?'detail-sheet item-editor':'detail-sheet'}>
         <SheetTitle>{editing?'Edit item':current?.title}</SheetTitle>
         <SheetDescription>{current?.area} · {current?.type}{current&&actionable(current)?' · '+quadrant(current):''}</SheetDescription>
         {current&&(editing?<form className="stack item-edit-form" onSubmit={e=>void saveEdit(e)}>
-          <label><span className="field-label">Title</span><Input required maxLength={180} value={editTitle} onChange={e=>setEditTitle(e.target.value)}/></label>
+          <label className="item-edit-title"><span className="field-label">Title</span><Input required maxLength={180} value={editTitle} onChange={e=>setEditTitle(e.target.value)}/></label>
           <label><span className="field-label">Details</span><Textarea maxLength={12000} value={editContent} onChange={e=>setEditContent(e.target.value)}/></label>
-          <div className="form-grid"><div><span className="field-label">Area</span><Select value={editArea} onValueChange={v=>setEditArea(v as Area)}><SelectTrigger aria-label="Area"><SelectValue/></SelectTrigger><SelectContent>{PERSONAL_AREAS.map(a=><SelectItem key={a} value={a}>{a}</SelectItem>)}</SelectContent></Select></div>
+          {(editType==='task'||editType==='reminder')&&<div className="item-edit-pair item-edit-schedule"><label><span className="field-label">Due day</span><Input type="date" value={editDate.split('T')[0]} onChange={e=>setEditDate(e.target.value?(e.target.value+(editDate.includes('T')?'T'+editDate.split('T')[1]:'')):'')}/></label><label><span className="field-label">Time</span><Input type="time" disabled={!editDate} value={editDate.split('T')[1]||''} onChange={e=>setEditDate(editDate.split('T')[0]+(e.target.value?'T'+e.target.value:''))}/></label></div>}
+          <div className="item-edit-pair"><div><span className="field-label">Area</span><Select value={editArea} onValueChange={v=>setEditArea(v as Area)}><SelectTrigger aria-label="Area"><SelectValue/></SelectTrigger><SelectContent>{PERSONAL_AREAS.map(a=><SelectItem key={a} value={a}>{a}</SelectItem>)}</SelectContent></Select></div>
             <div><span className="field-label">Type</span><Select value={editType} disabled={!!current.parent_id||items.some(i=>i.parent_id===current.id)} onValueChange={v=>setEditType(v as ItemType)}><SelectTrigger aria-label="Type"><SelectValue/></SelectTrigger><SelectContent>{['task','reminder','note','reference'].map(t=><SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div></div>
-          {(editType==='task'||editType==='reminder')&&<><label><span className="field-label">Due day</span><Input type="date" value={editDate.split('T')[0]} onChange={e=>setEditDate(e.target.value?(e.target.value+(editDate.includes('T')?'T'+editDate.split('T')[1]:'')):'')}/></label><label><span className="field-label">Time</span><Input type="time" disabled={!editDate} value={editDate.split('T')[1]||''} onChange={e=>setEditDate(editDate.split('T')[0]+(e.target.value?'T'+e.target.value:''))}/></label><div className="form-grid">
-            <Score label="Importance" value={editImportance} onChange={setEditImportance}/><Score label="Urgency" value={editUrgency} onChange={setEditUrgency}/></div></>}
-          <Button type="submit" disabled={editBusy||!editTitle.trim()}>Save changes</Button><Button type="button" variant="ghost" onClick={()=>setEditing(false)}>Cancel</Button>
+          {(editType==='task'||editType==='reminder')&&<div className="item-edit-pair"><Score label="Importance" value={editImportance} onChange={setEditImportance}/><Score label="Urgency" value={editUrgency} onChange={setEditUrgency}/></div>}
+          <div className="item-edit-actions"><Button type="button" variant="ghost" onClick={()=>setEditing(false)}>Cancel</Button><Button type="submit" disabled={editBusy||!editTitle.trim()}>Save changes</Button></div>
         </form>:<div className="stack">
           {current.content&&<p className="detail-content">{current.content}</p>}
           {(current.due_at||current.due_date)&&<p className="due">{dueLabel(current.due_at,current.due_date)}</p>}

@@ -159,142 +159,178 @@ input[data-slot=input],select { min-height:48px; background:#fff; padding:10px 1
   min-width:38px;
   min-height:38px;
 }
-.item-edit-form{
-  display:grid!important;
-  grid-template-columns:minmax(0,1fr) minmax(0,1fr);
-  column-gap:12px!important;
-  row-gap:11px!important;
-  padding:0!important;
-  margin:0!important;
-}
-.item-edit-form>label,
-.item-edit-form>.form-grid,
-.item-edit-form .form-grid>div{
-  min-width:0;
-  margin:0!important;
-}
-.item-edit-form>label:not(:has(input[type=date])):not(:has(input[type=time])),
-.item-edit-form>.form-grid{
-  grid-column:1/-1;
-}
-.item-edit-form .field-label{
-  display:block;
-  font-size:.78rem;
-  font-weight:650;
-  line-height:1.1;
-  color:#53627a;
-  margin:0 0 5px!important;
-}
-.item-edit-form input[data-slot=input],
-.item-edit-form textarea[data-slot=textarea],
-.item-edit-form [data-slot=select-trigger]{
-  box-sizing:border-box!important;
-  width:100%!important;
-  min-width:0!important;
-  max-width:100%!important;
-  border:1px solid #d8e0eb!important;
-  background-color:#fff!important;
-  box-shadow:0 1px 2px #12213a0b!important;
-}
-.item-edit-form input[data-slot=input],
-.item-edit-form [data-slot=select-trigger]{
-  min-height:44px!important;
-  height:44px!important;
-  border-radius:13px!important;
-  padding:0 12px!important;
-  font-size:.95rem!important;
-}
-.item-edit-form [data-slot=select-trigger]{
-  display:flex!important;
-  align-items:center!important;
-  justify-content:space-between!important;
-}
-.item-edit-form textarea[data-slot=textarea]{
-  min-height:78px!important;
-  height:78px!important;
-  max-height:130px!important;
-  resize:vertical;
-  border-radius:13px!important;
-  line-height:1.35!important;
-  padding:10px 12px!important;
-  font-size:.95rem!important;
-}
-.item-edit-form .form-grid{
-  display:grid!important;
-  grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;
-  gap:12px!important;
-  width:100%!important;
-}
-.item-edit-form .form-grid>div,
-.item-edit-form>label:has(input[type=date]),
-.item-edit-form>label:has(input[type=time]){
-  width:100%!important;
-  min-width:0!important;
-}
-.item-edit-form input[type=date],
-.item-edit-form input[type=time]{
-  display:block!important;
-  width:100%!important;
-  min-width:0!important;
-  max-width:100%!important;
-  overflow:hidden;
-  white-space:nowrap;
-  font-size:.92rem!important;
-  line-height:44px!important;
-}
-.item-edit-form input[type=date]::-webkit-date-and-time-value,
-.item-edit-form input[type=time]::-webkit-date-and-time-value{
-  text-align:left;
-}
-.item-edit-form [data-slot=select-trigger][aria-label=Area],
-.item-edit-form [data-slot=select-trigger][aria-label=Type],
-.item-edit-form [data-slot=select-trigger][aria-label=Importance],
-.item-edit-form [data-slot=select-trigger][aria-label=Urgency],
-.item-edit-form input[type=date],
-.item-edit-form input[type=time]{
-  padding-left:40px!important;
-  background-repeat:no-repeat!important;
-  background-position:13px center!important;
-  background-size:18px 18px!important;
-}
-.item-edit-form [data-slot=select-trigger][aria-label=Area]{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%235d718f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 11 9-8 9 8'/%3E%3Cpath d='M5 10v10h14V10'/%3E%3Cpath d='M9 20v-6h6v6'/%3E%3C/svg%3E")!important}
-.item-edit-form [data-slot=select-trigger][aria-label=Type]{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%235d718f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 8a6 6 0 0 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9'/%3E%3Cpath d='M10 21h4'/%3E%3C/svg%3E")!important}
-.item-edit-form [data-slot=select-trigger][aria-label=Importance]{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%235d718f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 22V4'/%3E%3Cpath d='M5 4h12l-2 4 2 4H5'/%3E%3C/svg%3E")!important}
-.item-edit-form [data-slot=select-trigger][aria-label=Urgency]{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%235d718f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m13 2-9 12h8l-1 8 9-12h-8z'/%3E%3C/svg%3E")!important}
-.item-edit-form input[type=date]{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%235d718f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='16' rx='2'/%3E%3Cpath d='M16 3v4M8 3v4M3 11h18'/%3E%3C/svg%3E")!important}
-.item-edit-form input[type=time]{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%235d718f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 7v5l3 2'/%3E%3C/svg%3E")!important}
-.item-edit-form>button{
-  min-height:48px!important;
-  height:48px!important;
-  margin:2px 0 0!important;
-  border-radius:14px!important;
-  font-size:1rem!important;
-  font-weight:650!important;
-}
-.item-edit-form>button[type=submit]{grid-column:1/2}
-.item-edit-form>button[type=button]{
-  grid-column:2/3;
-  background:#f3f6fb!important;
-}
-.item-edit-form input:disabled,
-.item-edit-form button:disabled{opacity:.62}
-
+/* Preserve the existing presentation of the other sheets. */
 @media(max-width:430px){
   .detail-sheet{
     max-height:calc(100dvh - 96px);
     padding:29px 20px calc(18px + env(safe-area-inset-bottom));
   }
-  .item-edit-form{
-    column-gap:10px!important;
-    row-gap:10px!important;
-  }
-  .item-edit-form .form-grid{gap:10px!important}
 }
 @media(max-width:360px){
   .detail-sheet{padding-left:16px;padding-right:16px}
-  .item-edit-form{column-gap:8px!important}
-  .item-edit-form .form-grid{gap:8px!important}
-  .item-edit-form .field-label{font-size:.74rem}
-  .item-edit-form input[data-slot=input],
-  .item-edit-form [data-slot=select-trigger]{font-size:.88rem!important}
+}
+
+/* Layout-only item editor. Existing React controls own all behavior. */
+.item-editor.detail-sheet {
+  --editor-gutter:16px;
+  width:min(100%,430px);
+  max-height:calc(100vh - 16px);
+  max-height:calc(100dvh - max(16px,env(safe-area-inset-top,0px)));
+  padding:12px var(--editor-gutter) max(12px,env(safe-area-inset-bottom,0px));
+  padding-left:max(var(--editor-gutter),env(safe-area-inset-left,0px));
+  padding-right:max(var(--editor-gutter),env(safe-area-inset-right,0px));
+  border-radius:24px 24px 0 0;
+  overflow-y:auto;
+  scrollbar-width:auto;
+  box-shadow:0 -8px 32px rgb(28 43 62 / 8%);
+}
+.item-editor.detail-sheet::-webkit-scrollbar { display:initial; }
+.item-editor.detail-sheet::before { display:none; }
+/* Keep the dialog's existing accessible name and description without
+   repeating them above the full-width title field. */
+.item-editor [data-slot=sheet-title],
+.item-editor [data-slot=sheet-description] {
+  position:absolute;
+  width:1px;
+  height:1px;
+  padding:0;
+  overflow:hidden;
+  clip-path:inset(50%);
+  white-space:nowrap;
+}
+.item-editor.detail-sheet > button {
+  top:12px;
+  right:max(var(--editor-gutter),env(safe-area-inset-right,0px));
+  width:44px;
+  height:44px;
+  min-width:44px;
+  min-height:44px;
+  border-radius:50%;
+  background:#f0f3f7;
+  color:#526173;
+  opacity:1;
+}
+.item-editor .item-edit-form {
+  display:grid;
+  grid-template-columns:minmax(0,1fr);
+  flex-shrink:0;
+  gap:12px;
+  min-width:0;
+  margin:0;
+  padding:0;
+}
+.item-editor .item-edit-form label,
+.item-editor .item-edit-pair > div {
+  display:grid;
+  gap:6px;
+  min-width:0;
+}
+.item-editor .field-label {
+  margin:0;
+  font-size:13px;
+  font-weight:600;
+  line-height:18px;
+  color:#526173;
+}
+.item-editor .item-edit-title .field-label {
+  display:flex;
+  align-items:center;
+  min-height:44px;
+  padding-right:56px;
+}
+.item-editor .item-edit-pair {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:12px;
+  min-width:0;
+}
+.item-editor .item-edit-schedule {
+  grid-template-columns:repeat(auto-fit,minmax(min(100%,160px),1fr));
+}
+.item-editor input[data-slot=input],
+.item-editor textarea[data-slot=textarea],
+.item-editor [data-slot=select-trigger] {
+  box-sizing:border-box;
+  width:100%;
+  min-width:0;
+  max-width:100%;
+  border:1px solid #dce2e9;
+  border-radius:12px;
+  background:#f9fafc;
+  color:#172332;
+  font-size:16px;
+  scroll-margin-block:16px;
+}
+.item-editor input[data-slot=input],
+.item-editor [data-slot=select-trigger] {
+  height:46px;
+  min-height:46px;
+  padding:10px 12px;
+  line-height:24px;
+}
+.item-editor .item-edit-title input {
+  background:#fff;
+  font-size:18px!important;
+  font-weight:600;
+}
+.item-editor textarea[data-slot=textarea] {
+  height:80px;
+  min-height:80px;
+  field-sizing:fixed;
+  padding:9px 12px;
+  line-height:20px;
+  resize:none;
+  overflow-y:auto;
+}
+.item-editor [data-slot=select-trigger] {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+}
+.item-editor [data-slot=select-value] {
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.item-editor input[type=date],
+.item-editor input[type=time] {
+  display:block;
+  padding-inline:10px;
+  -webkit-appearance:none;
+  appearance:none;
+}
+.item-editor input::-webkit-date-and-time-value {
+  min-width:0;
+  text-align:left;
+}
+.item-editor input::-webkit-datetime-edit { min-width:0; padding:0; }
+/* The modal retains its existing scroll/focus handling. Actions scroll with
+   the fields; no fixed footer can obscure an input or jump on focus. */
+.item-editor .item-edit-actions {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,1.8fr);
+  gap:12px;
+  padding-top:12px;
+  margin-top:4px;
+  border-top:1px solid #e9edf2;
+}
+.item-editor .item-edit-actions button {
+  width:100%;
+  min-width:0;
+  min-height:48px;
+  height:auto;
+  padding:12px;
+  border-radius:12px;
+  font-size:16px;
+  font-weight:600;
+  line-height:22px;
+}
+.item-editor .item-edit-actions button[type=button] {
+  border:1px solid #dce2e9;
+  color:#526173;
+  background:#fff;
+}
+@media(max-width:374px){
+  .item-editor.detail-sheet { --editor-gutter:12px; }
 }
