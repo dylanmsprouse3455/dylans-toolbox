@@ -1,0 +1,158 @@
+/* Personal command-center visual refresh.
+   This file is intentionally CSS-only: existing Personal behavior stays intact. */
+
+/* Four primary destinations: Home, Areas, Done, Capture.
+   Today remains the underlying Home view and Talk remains the underlying Capture view. */
+.bottom-nav [role=tab]:nth-child(5){display:none}
+.bottom-nav [role=tab]:nth-child(1){order:1;font-size:0}
+.bottom-nav [role=tab]:nth-child(3){order:2}
+.bottom-nav [role=tab]:nth-child(4){order:3}
+.bottom-nav [role=tab]:nth-child(2){order:4;font-size:0}
+.bottom-nav [role=tab]:nth-child(1)::after{content:'Home';font-size:.78rem;line-height:1}
+.bottom-nav [role=tab]:nth-child(2)::after{content:'Capture';font-size:.78rem;line-height:1}
+.bottom-nav [role=tablist]{max-width:520px;gap:8px}
+.bottom-nav [role=tab]{min-height:58px;padding:8px 6px;border-radius:16px;font-weight:650}
+.bottom-nav [role=tab][data-state=active]{background:#eaf2ff;color:#2458d3}
+.bottom-nav svg{width:22px;height:22px}
+
+/* Overall Personal density and hierarchy. */
+.shell{padding-left:20px;padding-right:20px;padding-bottom:calc(98px + env(safe-area-inset-bottom))}
+.app-header{padding:22px 0 12px}
+.brand-mark{width:36px;height:36px;border-radius:11px;background:#2458d3}
+.intro{padding:18px 0 14px}
+.intro h2{margin:6px 0 3px;font-size:clamp(1.62rem,5vw,1.95rem);font-weight:700}
+.attention{padding-top:12px}
+.section-heading{margin-bottom:11px}
+
+/* Home: retain the ranking logic while making the actual list easier to scan. */
+.today-area-grid{gap:18px}
+.today-area-card{overflow:visible;border:0;border-radius:0;background:transparent}
+.today-area-heading{padding:0 4px 8px;background:transparent;border:0}
+.today-area-heading>svg{width:19px;height:19px}
+.today-area-heading h3{font-size:.88rem;font-weight:700}
+.today-area-heading span{font-size:.72rem}
+.today-area-card .item-list{gap:8px}
+.today-area-card .item{border:1px solid #e3e9f2;border-radius:16px;background:#fff;padding:8px 9px 8px 5px;box-shadow:0 4px 14px rgb(29 48 78 / 4%)}
+.item{border-color:#e3e9f2;box-shadow:0 3px 12px rgb(29 48 78 / 3%)}
+.item-title{font-weight:650;letter-spacing:-.012em}
+.item-meta{margin-top:3px;font-size:.82rem;gap:6px}
+.attention-reason{margin-top:5px;color:#526f9d;font-size:.73rem;font-weight:650}
+.item-quick{color:#65758c}
+.quiet-note{padding:15px 10px 4px;font-size:.82rem}
+
+/* Areas: cleaner, lighter cards that still preserve every area and count. */
+.general-notes-card{margin:2px 0 12px;padding:15px 16px;border-radius:17px;border-color:#e3e9f2;box-shadow:0 3px 12px rgb(29 48 78 / 3%)}
+.area-grid{gap:10px;margin:14px 0}
+.area-button{min-height:76px;padding:14px;border-radius:17px;border-color:#e3e9f2;box-shadow:0 3px 12px rgb(29 48 78 / 3%)}
+.area-button svg{width:21px;height:21px}
+.area-button span{font-weight:650}
+.area-button small{font-weight:500}
+
+/* Done: deliberately quieter than active work. */
+.completed-search{margin-bottom:14px}
+.completed-day{border-color:#e5eaf1;border-radius:15px;box-shadow:none}
+.completed-day>summary{padding:12px 14px;background:#fafbfd;color:#66748a}
+.completed-day .item-list{padding:8px;gap:7px}
+.completed-day .item{background:#fbfcfe;box-shadow:none;opacity:.88}
+
+/* Capture: one place for voice, typing, and dumps. */
+.capture-card{max-width:520px;margin:0 auto;background:#fff;border:1px solid #e0e7f1;border-radius:24px;padding:22px 18px 18px;box-shadow:0 8px 28px rgb(29 48 78 / 6%)}
+.capture-card h2{font-size:1.18rem}
+.capture-card p{font-size:.9rem}
+.mic-button{width:96px!important;height:96px!important;margin:20px auto 12px;box-shadow:0 0 0 10px #2c91fa10,0 13px 28px #1f86ed22!important}
+.capture-secondary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:16px}
+.capture-secondary button{width:100%;min-height:48px!important;border:1px solid #e1e7ef!important;background:#f8fafc!important;border-radius:14px!important;color:#23344d!important;font-weight:650}
+.capture-card~.quiet-note{display:none}
+.live-review{border-radius:18px;border-color:#e1e7ef;box-shadow:0 4px 18px rgb(29 48 78 / 4%)}
+
+/* Identify the ordinary Personal item detail sheet without touching account,
+   capture, pending, quick-actions, or editor sheets. The Edit details button
+   is unique to this detail view. */
+.detail-sheet:has(> .stack > button .lucide-pen-line):not(.item-editor):not(.quick-sheet){
+  width:min(100%,560px);
+  max-height:94dvh;
+  padding:34px 22px calc(24px + env(safe-area-inset-bottom));
+  border-radius:30px 30px 0 0;
+  background:#fff;
+  box-shadow:0 -18px 48px rgb(22 38 63 / 14%);
+}
+.detail-sheet:has(> .stack > button .lucide-pen-line):not(.item-editor):not(.quick-sheet)::before{
+  top:10px;width:54px;height:5px;background:#d4deec;
+}
+.detail-sheet:has(> .stack > button .lucide-pen-line):not(.item-editor):not(.quick-sheet)>button:last-child{
+  top:18px;right:18px;width:44px;height:44px;min-width:44px;min-height:44px;border-radius:50%;background:#f1f4f8;color:#4f5e73;opacity:1;
+}
+.detail-sheet:has(> .stack > button .lucide-pen-line):not(.item-editor):not(.quick-sheet) [data-slot=sheet-title]{
+  margin:8px 54px 3px 0!important;padding:0;font-size:clamp(1.65rem,6vw,2rem);line-height:1.08;font-weight:760;letter-spacing:-.045em;color:#15233a;
+}
+.detail-sheet:has(> .stack > button .lucide-pen-line):not(.item-editor):not(.quick-sheet) [data-slot=sheet-description]{
+  margin:0 48px 20px 0!important;font-size:.95rem;line-height:1.35;color:#718097;
+}
+.detail-sheet:has(> .stack > button .lucide-pen-line):not(.item-editor):not(.quick-sheet)> .stack{
+  display:flex;flex-direction:column;gap:12px;
+}
+.detail-sheet:has(> .stack > button .lucide-pen-line) .detail-content{
+  order:1;margin:2px 0 4px;font-size:1.06rem;line-height:1.62;color:#24344c;
+}
+.detail-sheet:has(> .stack > button .lucide-pen-line) .item-state-line{order:2;margin-top:1px}
+.detail-sheet:has(> .stack > button .lucide-pen-line) .due{
+  order:3;display:grid;gap:2px;position:relative;margin:4px 0 2px;padding:13px 16px;border:1px solid #dce7f7;border-radius:18px;background:#f2f6fd;color:#1d3353;font-size:1.18rem;font-weight:700;line-height:1.25;
+}
+.detail-sheet:has(> .stack > button .lucide-pen-line) .due::before{
+  content:'DUE DATE';font-size:.68rem;line-height:1.1;letter-spacing:.09em;color:#667891;font-weight:800;
+}
+.detail-sheet:has(> .stack > button .lucide-pen-line) .stack>button{
+  width:100%;min-height:54px;border-radius:16px;font-size:1rem;font-weight:680;box-shadow:none;
+}
+.detail-sheet:has(> .stack > button .lucide-pen-line) .stack>button:has(.lucide-check){
+  order:4;background:#2458d3;color:#fff;border-color:#2458d3;box-shadow:0 8px 22px rgb(36 88 211 / 18%);
+}
+.detail-sheet:has(> .stack > button .lucide-pen-line) .stack>button:has(.lucide-check) svg{
+  width:23px;height:23px;padding:3px;border-radius:50%;background:#fff;color:#2458d3;
+}
+.detail-sheet:has(> .stack > button .lucide-pen-line) .stack>button:has(.lucide-mic){
+  order:5;background:#f8fafc;color:#23344d;border:1px solid #e0e6ef;
+}
+.detail-sheet:has(> .stack > button .lucide-pen-line) .connected-steps{order:6;margin-top:4px;padding-top:16px}
+.detail-sheet:has(> .stack > button .lucide-pen-line) form[style*='display:flex']{
+  order:7!important;position:relative;display:grid!important;grid-template-columns:minmax(0,1fr) auto;gap:10px!important;margin-top:5px;padding-top:34px;border-top:1px solid #e8edf4;
+}
+.detail-sheet:has(> .stack > button .lucide-pen-line) form[style*='display:flex']::before{
+  content:'SMALL STEPS';position:absolute;top:12px;left:2px;font-size:.7rem;letter-spacing:.09em;font-weight:800;color:#718097;
+}
+.detail-sheet:has(> .stack > button .lucide-pen-line) form[style*='display:flex'] input{
+  min-width:0;height:50px;border-radius:14px;background:#fff;border-color:#dfe6ef;
+}
+.detail-sheet:has(> .stack > button .lucide-pen-line) form[style*='display:flex'] button{
+  min-width:72px;height:50px;border-radius:14px;background:#edf3ff;color:#2458d3;border-color:#e1e9fa;font-weight:750;
+}
+.detail-sheet:has(> .stack > button .lucide-pen-line) .stack>button:has(.lucide-pen-line){
+  order:8;justify-content:flex-start;padding:0 16px;background:#fff;color:#23344d;border:1px solid #e0e6ef;
+}
+.detail-sheet:has(> .stack > button .lucide-pen-line) .stack>button:has(.lucide-pen-line)::after{
+  content:'›';margin-left:auto;font-size:1.45rem;line-height:1;color:#738198;font-weight:500;
+}
+.detail-sheet:has(> .stack > button .lucide-pen-line) .stack>details{
+  order:9;border:1px solid #e0e6ef;border-radius:16px;background:#fff;overflow:hidden;
+}
+.detail-sheet:has(> .stack > button .lucide-pen-line) .stack>details>summary{
+  list-style:none;display:flex;align-items:center;min-height:54px;padding:0 16px;color:#23344d;font-size:1rem;font-weight:680;cursor:pointer;
+}
+.detail-sheet:has(> .stack > button .lucide-pen-line) .stack>details>summary::-webkit-details-marker{display:none}
+.detail-sheet:has(> .stack > button .lucide-pen-line) .stack>details>summary::after{content:'⌄';margin-left:auto;color:#738198;font-size:1.1rem}
+.detail-sheet:has(> .stack > button .lucide-pen-line) .stack>details[open]>summary::after{content:'⌃'}
+.detail-sheet:has(> .stack > button .lucide-pen-line) .stack>details .detail-source{margin:0;padding:14px 16px 16px;border-top:1px solid #edf1f6;line-height:1.55}
+
+@media(max-width:430px){
+  .shell{padding-left:16px;padding-right:16px}
+  .bottom-nav{padding-left:10px;padding-right:10px}
+  .bottom-nav [role=tab]{font-size:.72rem}
+  .bottom-nav [role=tab]:nth-child(1)::after,.bottom-nav [role=tab]:nth-child(2)::after{font-size:.72rem}
+  .detail-sheet:has(> .stack > button .lucide-pen-line):not(.item-editor):not(.quick-sheet){padding-left:18px;padding-right:18px}
+}
+
+@media(max-width:365px){
+  .capture-secondary{grid-template-columns:1fr}
+  .area-grid{grid-template-columns:1fr}
+  .detail-sheet:has(> .stack > button .lucide-pen-line) form[style*='display:flex']{grid-template-columns:minmax(0,1fr) 68px}
+}
