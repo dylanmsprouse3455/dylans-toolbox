@@ -1,19 +1,19 @@
 /* Personal command-center visual refresh.
    This file is intentionally CSS-only: existing Personal behavior stays intact. */
 
-/* Four primary destinations: Home, Areas, Done, Capture.
-   Today remains the underlying Home view and Talk remains the underlying Capture view. */
-.bottom-nav [role=tab]:nth-child(5){display:none}
+/* Keep all five existing destinations reachable. Home/Capture are presentation
+   labels only; the underlying Today/Talk views and AI behavior stay intact. */
 .bottom-nav [role=tab]:nth-child(1){order:1;font-size:0}
 .bottom-nav [role=tab]:nth-child(3){order:2}
 .bottom-nav [role=tab]:nth-child(4){order:3}
 .bottom-nav [role=tab]:nth-child(2){order:4;font-size:0}
-.bottom-nav [role=tab]:nth-child(1)::after{content:'Home';font-size:.78rem;line-height:1}
-.bottom-nav [role=tab]:nth-child(2)::after{content:'Capture';font-size:.78rem;line-height:1}
-.bottom-nav [role=tablist]{max-width:520px;gap:8px}
-.bottom-nav [role=tab]{min-height:58px;padding:8px 6px;border-radius:16px;font-weight:650}
+.bottom-nav [role=tab]:nth-child(5){order:5}
+.bottom-nav [role=tab]:nth-child(1)::after{content:'Home';font-size:.76rem;line-height:1}
+.bottom-nav [role=tab]:nth-child(2)::after{content:'Capture';font-size:.76rem;line-height:1}
+.bottom-nav [role=tablist]{max-width:520px;gap:4px}
+.bottom-nav [role=tab]{min-width:0;min-height:58px;padding:8px 3px;border-radius:16px;font-size:.74rem;font-weight:650}
 .bottom-nav [role=tab][data-state=active]{background:#eaf2ff;color:#2458d3}
-.bottom-nav svg{width:22px;height:22px}
+.bottom-nav svg{width:21px;height:21px}
 
 /* Overall Personal density and hierarchy. */
 .shell{padding-left:20px;padding-right:20px;padding-bottom:calc(98px + env(safe-area-inset-bottom))}
@@ -145,9 +145,9 @@
 
 @media(max-width:430px){
   .shell{padding-left:16px;padding-right:16px}
-  .bottom-nav{padding-left:10px;padding-right:10px}
-  .bottom-nav [role=tab]{font-size:.72rem}
-  .bottom-nav [role=tab]:nth-child(1)::after,.bottom-nav [role=tab]:nth-child(2)::after{font-size:.72rem}
+  .bottom-nav{padding-left:8px;padding-right:8px}
+  .bottom-nav [role=tab]{font-size:.68rem;padding-left:2px;padding-right:2px}
+  .bottom-nav [role=tab]:nth-child(1)::after,.bottom-nav [role=tab]:nth-child(2)::after{font-size:.68rem}
   .detail-sheet:has(> .stack > button .lucide-pen-line):not(.item-editor):not(.quick-sheet){padding-left:18px;padding-right:18px}
 }
 
