@@ -1,7 +1,7 @@
 'use client';
 import {useCallback,useEffect,useRef,useState} from 'react';
 import type {Session,SupabaseClient} from '@supabase/supabase-js';
-import {Mic,Square,PenLine,Sun,Layers,CheckCheck,BriefcaseBusiness,House,Wallet,UserRound,Users,Folder,Lightbulb,Inbox,Check,CheckCircle2,Circle,ChevronRight,ArrowLeft,WifiOff,LoaderCircle,Settings2,FileText,Bookmark,CloudUpload,LogOut,ShieldCheck,Box,MessageSquareText,Search,StickyNote,X} from 'lucide-react';
+import {Mic,Square,PenLine,Sun,Layers,CheckCheck,BriefcaseBusiness,House,Wallet,UserRound,Users,Folder,Lightbulb,Inbox,Check,CheckCircle2,Circle,ChevronRight,ArrowLeft,WifiOff,LoaderCircle,Settings2,FileText,Bookmark,CloudUpload,LogOut,ShieldCheck,Box,MessageSquareText,Search,StickyNote,X,MoreHorizontal,Pin,PinOff,Undo2,Clock3,ClipboardPaste} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {PersonalRecovery} from '@/components/personal-recovery';
 import {Input} from '@/components/ui/input';
@@ -11,7 +11,7 @@ import {Sheet,SheetContent,SheetTitle,SheetDescription} from '@/components/ui/sh
 import {Select,SelectContent,SelectItem,SelectTrigger,SelectValue} from '@/components/ui/select';
 import {getSupabase} from '@/lib/supabase';
 import {appBase,captureUrl,publicConfig} from '@/lib/public-config';
-import {AREAS,PERSONAL_AREAS,actionable,attention,dueLabel,dueTime,quadrant,unopenedForDay,completionDayKey,completionDayLabel,completionMoment,type Area,type Item,type ItemType} from '@/lib/items';
+import {AREAS,PERSONAL_AREAS,actionable,attention,attentionReason,dueLabel,dueTime,followUpLabel,quadrant,unopenedForDay,workflowState,completionDayKey,completionDayLabel,completionMoment,type Area,type Item,type ItemType} from '@/lib/items';
 import {acceptCapture,cachedItems,cachedTurn,displayTurn,capturesFor,changesFor,putLocal,removeLocal,type Capture,type Change,type TurnReceipt,type AssistantTurn} from '@/lib/local';
 import {stopSpeaking} from '@/lib/speech';
 import {appendSpeech,thoughtLines} from '@/lib/live-speech';
@@ -35,8 +35,9 @@ export default function Toolbox(){
   const [unsaved,setUnsaved]=useState<Capture[]>([]);
   const [lastTurn,setLastTurn]=useState<AssistantTurn|null>(null);
   const [aiDraft,setAiDraft]=useState(''),[aiHistory,setAiHistory]=useState<AiHistoryRow[]>([]),[completedQuery,setCompletedQuery]=useState('');
+  const [dumpDraft,setDumpDraft]=useState(''),[quickItem,setQuickItem]=useState<string|null>(null),[waitingOn,setWaitingOn]=useState(''),[waitingDate,setWaitingDate]=useState('');
   const lastTurnRef=useRef<AssistantTurn|null>(null);
-  const [sheet,setSheet]=useState<'write'|'account'|'pending'|null>(null);
+  const [sheet,setSheet]=useState<'write'|'dump'|'account'|'pending'|null>(null);
   const [draft,setDraft]=useState(''),[selected,setSelected]=useState<string|null>(null);
   const [recording,setRecording]=useState(false),[seconds,setSeconds]=useState(0),[starting,setStarting]=useState(false);
   const [liveTranscript,setLiveTranscript]=useState(''),[interimTranscript,setInterimTranscript]=useState(''),[liveWordsAvailable,setLiveWordsAvailable]=useState(true);
@@ -49,7 +50,7 @@ export default function Toolbox(){
   const [editImportance,setEditImportance]=useState('3'),[editUrgency,setEditUrgency]=useState('3'),[editBusy,setEditBusy]=useState(false);
   const [subTitle,setSubTitle]=useState(''),[today,setToday]=useState('');
   const clientRef=useRef<SupabaseClient|null>(null),sessionRef=useRef<Session|null>(null),itemsRef=useRef<Item[]>([]);
-  const lock=useRef(false),refreshLock=useRef(false),recorder=useRef<MediaRecorder|null>(null);
+  const lock=useRef(false),refreshLock=useRef(false),autopilotLock=useRef(false),recorder=useRef<MediaRecorder|null>(null);
   const recordingOwner=useRef<string|null>(null),recTimer=useRef<ReturnType<typeof setInterval>|null>(null);
   const recognition=useRef<SpeechRecognitionLike|null>(null),liveTranscriptRef=useRef(''),interimTranscriptRef=useRef('');
   const reviewContext=useRef<{captured_at:string;focus_id?:string;reply_to?:string;channel?:'capture'|'ai'}|null>(null);
@@ -121,7 +122,7 @@ export default function Toolbox(){
           updateItems(cached);
           if(result.turn_id){const turn=displayTurn(result);lastTurnRef.current=turn;setLastTurn(turn);if(capture.channel==='ai')void loadAiHistory();}
           const newItems=result.items as Item[];
-          setFeedback(result.turn_id?'':newItems.length?'Put away '+newItems.length+' '+(newItems.length===1?'item':'items')+'. We’ll surface what matters.':'Nothing to add from that capture.');
+          setFeedback(result.turn_id?(capture.channel==='ai'?'':'Saved and organized.'):(newItems.length?'Saved and organized '+newItems.length+' '+(newItems.length===1?'item':'items')+'.':'Saved. Nothing new needed.'));
           await updatePending();
         }catch(e){
           capture.error=errorText(e);await putLocal('captures',capture);
@@ -132,6 +133,21 @@ export default function Toolbox(){
     }catch(e){if(sessionRef.current?.user.id===owner)setError(errorText(e));}
     finally{lock.current=false;setBusy(false);}
   },[refresh,updatePending,updateItems,loadAiHistory]);
+  const runOverdueAutopilot=useCallback(async()=>{
+    const owner=sessionRef.current?.user.id;if(!owner||!navigator.onLine||autopilotLock.current)return;
+    const now=new Date(),day=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`,key='toolbox-overdue-review-'+owner;
+    if(localStorage.getItem(key)===day)return;
+    autopilotLock.current=true;
+    try{
+      const {data}=await clientRef.current!.auth.getSession();if(!data.session||data.session.user.id!==owner)return;
+      const form=new FormData();form.set('id',crypto.randomUUID());form.set('captured_at',now.toISOString());form.set('time_zone',Intl.DateTimeFormat().resolvedOptions().timeZone);form.set('mode','overdue');
+      const response=await fetch(captureUrl,{method:'POST',headers:{Authorization:'Bearer '+data.session.access_token,apikey:publicConfig.key},body:form,signal:AbortSignal.timeout(90000)});
+      const result=await response.json() as {rescheduled?:{id:string;title:string;due_date:string;reason:string}[];error?:string};
+      if(!response.ok)throw new Error(result.error||'Could not review overdue tasks.');
+      localStorage.setItem(key,day);
+      if(result.rescheduled?.length){await refresh();setFeedback(`Rescheduled ${result.rescheduled.length} flexible overdue ${result.rescheduled.length===1?'task':'tasks'}. Undo is available from Quick actions.`);}
+    }catch(e){setError(errorText(e));}finally{autopilotLock.current=false;}
+  },[refresh]);
 
   useEffect(()=>{
     unmounted.current=false;setOnline(navigator.onLine);
@@ -154,7 +170,7 @@ export default function Toolbox(){
         const previous=sessionRef.current?.user.id;
         sessionRef.current=next;setSession(next);
         if(previous!==next?.user.id){
-          updateItems([]);setPending([]);setPendingChanges(0);setSelected(null);setDraft('');setError('');setFeedback('');setSheet(null);setEditing(false);lastTurnRef.current=null;setLastTurn(null);setAiHistory([]);setAiDraft('');setCompletedQuery('');
+          updateItems([]);setPending([]);setPendingChanges(0);setSelected(null);setQuickItem(null);setDraft('');setDumpDraft('');setError('');setFeedback('');setSheet(null);setEditing(false);lastTurnRef.current=null;setLastTurn(null);setAiHistory([]);setAiDraft('');setCompletedQuery('');
           if(next){
             try{const [cache,turn]=await Promise.all([cachedItems(next.user.id),cachedTurn(next.user.id)]);if(sessionRef.current?.user.id===next.user.id){updateItems(cache);lastTurnRef.current=turn;setLastTurn(turn);}await updatePending();}catch(e){setError(errorText(e));}
           }
@@ -173,13 +189,13 @@ export default function Toolbox(){
   },[updateItems,updatePending]);
   useEffect(()=>{
     if(!session)return;
-    setLoading(true);void sync().finally(()=>setLoading(false));
-    const wake=()=>{if(document.visibilityState==='visible')void sync();};
+    setLoading(true);void sync().finally(()=>{setLoading(false);void runOverdueAutopilot();});
+    const wake=()=>{if(document.visibilityState==='visible')void sync().finally(()=>void runOverdueAutopilot());};
     const timer=setInterval(wake,60000);
     window.addEventListener('online',wake);window.addEventListener('focus',wake);document.addEventListener('visibilitychange',wake);
     const refreshTimer=setInterval(()=>{if(document.visibilityState==='visible'&&!lock.current)void refresh().catch(()=>{});},20000);
     return()=>{clearInterval(timer);clearInterval(refreshTimer);window.removeEventListener('online',wake);window.removeEventListener('focus',wake);document.removeEventListener('visibilitychange',wake);};
-  },[session?.user.id,sync,refresh]);
+  },[session?.user.id,sync,refresh,runOverdueAutopilot]);
   useEffect(()=>{if(!feedback)return;const timer=setTimeout(()=>setFeedback(''),9000);return()=>clearTimeout(timer);},[feedback]);
   useEffect(()=>{if(session&&view==='ai')void loadAiHistory().catch(e=>setError(errorText(e)));},[session?.user.id,view,loadAiHistory]);
   useEffect(()=>{setLimit(25);},[view,area]);
@@ -342,7 +358,7 @@ export default function Toolbox(){
       const factual=editType==='note'||editType==='reference';
       const {error}=await clientRef.current.from('items').update({title:editTitle.trim(),content:editContent,area:editArea,type:editType,
         due_at:!factual&&editDate.includes('T')?new Date(editDate).toISOString():null,due_date:!factual&&editDate&&!editDate.includes('T')?editDate:null,importance:factual?1:Number(editImportance),urgency:factual?1:Number(editUrgency)}).eq('id',current.id);
-      if(error)throw error;await refresh();setEditing(false);setFeedback('Updated.');
+      if(error)throw error;await refresh();setEditing(false);setFeedback('Saved.');
     }catch(e){setError(errorText(e));}finally{setEditBusy(false);}
   }
   async function addSubtask(e:React.FormEvent){
@@ -353,22 +369,45 @@ export default function Toolbox(){
       if(error)throw error;setSubTitle('');await refresh();
     }catch(e){setError(errorText(e));}finally{setEditBusy(false);}
   }
+  async function patchPersonalItem(item:Item,patch:Record<string,unknown>,message='Saved.'){
+    const client=clientRef.current,owner=sessionRef.current?.user.id;if(!client||!owner)return;
+    if(!navigator.onLine){setError('Reconnect to change this item. Nothing was lost.');return;}
+    setEditBusy(true);
+    try{const {error}=await client.from('items').update(patch).eq('id',item.id).eq('user_id',owner).neq('area','Work');if(error)throw error;await refresh();setFeedback(message);}catch(e){setError(errorText(e));}finally{setEditBusy(false);}
+  }
+  function openQuick(item:Item){setQuickItem(item.id);setWaitingOn(item.waiting_on??'');setWaitingDate(item.follow_up_date??'');}
+  async function moveTomorrow(item:Item){
+    const tomorrow=new Date();tomorrow.setDate(tomorrow.getDate()+1);const day=`${tomorrow.getFullYear()}-${String(tomorrow.getMonth()+1).padStart(2,'0')}-${String(tomorrow.getDate()).padStart(2,'0')}`;
+    if(item.due_at){const old=new Date(item.due_at),moved=new Date(tomorrow.getFullYear(),tomorrow.getMonth(),tomorrow.getDate(),old.getHours(),old.getMinutes(),0,0);await patchPersonalItem(item,{due_at:moved.toISOString(),due_date:null},'Moved to tomorrow.');}
+    else await patchPersonalItem(item,{due_date:day,due_at:null},'Moved to tomorrow.');
+    setQuickItem(null);
+  }
+  async function saveWaiting(item:Item){
+    const who=waitingOn.trim();if(!who){setError('Add who you’re waiting on.');return;}
+    await patchPersonalItem(item,{workflow_state:'waiting',waiting_on:who,follow_up_date:waitingDate||null,follow_up_at:null},waitingDate?'Waiting saved. It’ll resurface for follow-up.':'Waiting saved. It’ll come back if it sits too long.');setQuickItem(null);
+  }
+  async function resumeWaiting(item:Item){await patchPersonalItem(item,{workflow_state:'active',waiting_on:null,follow_up_date:null,follow_up_at:null},'Back in motion.');setQuickItem(null);}
+  async function toggleHighlight(item:Item){await patchPersonalItem(item,{highlighted:!item.highlighted},item.highlighted?'Highlight removed. Flexible overdue scheduling can move it.':'Highlighted. Automatic rescheduling will leave it alone.');setQuickItem(null);}
+  async function undoItem(item:Item){
+    const client=clientRef.current;if(!client||!navigator.onLine){setError('Reconnect to undo a change.');return;}
+    setEditBusy(true);try{const {error}=await client.rpc('toolbox_undo_personal_item',{item_uuid:item.id});if(error)throw error;await refresh();setFeedback('Undid the most recent change.');setQuickItem(null);}catch(e){setError(errorText(e));}finally{setEditBusy(false);}
+  }
   async function openItem(item:Item){
     const owner=sessionRef.current?.user.id,opened=new Date().toISOString();setSelected(item.id);
     if(owner){const next=itemsRef.current.map(row=>row.id===item.id?{...row,last_opened_at:opened}:row);updateItems(next);await putLocal('cache',{id:owner,items:next,lastTurn:lastTurnRef.current}).catch(()=>{});}
     if(clientRef.current&&navigator.onLine)void clientRef.current.from('items').update({last_opened_at:opened}).eq('id',item.id).eq('user_id',owner).then(({error})=>{if(error)setError('Could not update the opened time.');});
   }
   function row(item:Item){
-    const due=dueLabel(item.due_at,item.due_date),subtasks=items.filter(i=>i.parent_id===item.id),stale=view==='today'&&unopenedForDay(item);
-    return <article className={'item '+(stale?'stale-attention':'')} key={item.id}>
+    const due=dueLabel(item.due_at,item.due_date),follow=followUpLabel(item),subtasks=items.filter(i=>i.parent_id===item.id),stale=view==='today'&&workflowState(item)!=='waiting'&&unopenedForDay(item),waiting=workflowState(item)==='waiting';
+    return <article className={'item '+(stale?'stale-attention ':'')+(item.highlighted?'highlighted-item':'')} key={item.id}>
       {actionable(item)?<button className={'item-check '+(item.status==='completed'?'complete':'')} onClick={()=>void changeStatus(item)} aria-label={(item.status==='completed'?'Reopen ':'Complete ')+item.title}>{item.status==='completed'?<CheckCircle2/>:<Circle/>}</button>:<span className="item-check">{item.type==='note'?<FileText/>:<Bookmark/>}</span>}
       <button className="item-body" onClick={()=>void openItem(item)}>
-        <div className="item-title">{item.title}</div>
+        <div className="item-title">{item.highlighted&&<Pin className="item-pin" aria-label="Highlighted"/>}{item.title}</div>
         <div className="item-meta"><span>{item.area}</span><span aria-hidden>·</span>
-          {due?<span className={dueTime(item)<Date.now()?'overdue':'due'}>{dueTime(item)<Date.now()?'Overdue · ':''}{due}</span>:<span>{actionable(item)?quadrant(item):item.type==='note'?'Note':'Reference'}</span>}
+          {waiting?<span className="waiting-meta">Waiting{item.waiting_on?' on '+item.waiting_on:''}{follow?' · '+follow:''}</span>:due?<span className={dueTime(item)<Date.now()?'overdue':'due'}>{dueTime(item)<Date.now()?'Overdue · ':''}{due}</span>:<span>{actionable(item)?quadrant(item):item.type==='note'?'Note':'Reference'}</span>}
           {!!subtasks.length&&<span className="pill">{subtasks.filter(i=>i.status==='completed').length}/{subtasks.length} steps</span>}
-        </div>
-      </button><ChevronRight size={17} className="muted" aria-hidden/>
+        </div>{view==='today'&&actionable(item)&&<div className="attention-reason">{attentionReason(item)}</div>}
+      </button>{actionable(item)?<button className="item-quick" onClick={()=>openQuick(item)} aria-label={'Quick actions for '+item.title}><MoreHorizontal/></button>:<ChevronRight size={17} className="muted" aria-hidden/>}
     </article>;
   }
   const personalItems=items.filter(i=>i.area!=='Work');
@@ -419,7 +458,7 @@ export default function Toolbox(){
             {starting?<LoaderCircle className="spinning"/>:recording?<Square fill="currentColor"/>:<Mic/>}
           </Button>
           <div className="capture-label" aria-live="polite">{recording?Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0')+' · Tap when done':reviewDraft?'Ready when you are':'Tap to talk'}</div>
-          {!recording&&!reviewDraft&&<div className="capture-secondary"><Button variant="ghost" onClick={()=>setSheet(session?'write':'account')}><PenLine/>Or type a thought</Button></div>}
+          {!recording&&!reviewDraft&&<div className="capture-secondary"><Button variant="ghost" onClick={()=>setSheet(session?'write':'account')}><PenLine/>Type a thought</Button><Button variant="ghost" onClick={()=>setSheet(session?'dump':'account')}><ClipboardPaste/>Paste text dump</Button></div>}
         </section>
         {(recording||reviewDraft)&&<section className="live-review" aria-live="polite" aria-label="Orbit’s notes">
           <div className="section-heading"><h2>Orbit’s notes</h2><span className="muted">Nothing saved yet</span></div>
@@ -443,11 +482,16 @@ export default function Toolbox(){
     </Tabs>
     <Sheet open={sheet!==null} onOpenChange={open=>{if(!open)setSheet(null);}}>
       <SheetContent side="bottom" className="detail-sheet">
-        <SheetTitle>{sheet==='write'?'Put it down.':sheet==='pending'?'Saved on this device':session?'Your toolbox':'Your private toolbox'}</SheetTitle>
-        <SheetDescription>{sheet==='write'?'One thought or a whole ramble. We’ll find the useful pieces.':sheet==='pending'?'These will retry while the app is open and connected.':session?'Your thoughts, your space.':'Sign in to save and sync your thoughts across devices.'}</SheetDescription>
+        <SheetTitle>{sheet==='write'?'Put it down.':sheet==='dump'?'Dump text into Toolbox':sheet==='pending'?'Saved on this device':session?'Your toolbox':'Your private toolbox'}</SheetTitle>
+        <SheetDescription>{sheet==='write'?'One thought or a whole ramble. We’ll find the useful pieces.':sheet==='dump'?'Paste a conversation, message thread, notes, or a big block of text. Toolbox will extract only what you actually committed to or need to keep.':sheet==='pending'?'These will retry while the app is open and connected.':session?'Your thoughts, your space.':'Sign in to save and sync your thoughts across devices.'}</SheetDescription>
         {sheet==='write'&&<form className="stack" onSubmit={e=>{e.preventDefault();void saveText().catch(e=>setError(errorText(e)));}}>
           <Textarea aria-label="Your thoughts" value={draft} onChange={e=>setDraft(e.target.value)} maxLength={30000} placeholder="Remind me to call Sam tomorrow. Also, the paint we liked was…" autoFocus/>
           <Button type="submit" disabled={!draft.trim()||busy}><Check/>Send to Toolbox</Button>
+        </form>}
+        {sheet==='dump'&&<form className="stack text-dump-form" onSubmit={e=>{e.preventDefault();void saveText(dumpDraft).then(()=>setDumpDraft('')).catch(e=>setError(errorText(e)));}}>
+          <Textarea aria-label="Text dump" value={dumpDraft} onChange={e=>setDumpDraft(e.target.value)} maxLength={30000} placeholder="Paste the whole conversation or block of notes here…" autoFocus/>
+          <p className="muted">Suggestions from other speakers are not turned into your tasks unless you clearly agreed to them.</p>
+          <Button type="submit" disabled={!dumpDraft.trim()||busy}><Check/>Process dump</Button>
         </form>}
         {sheet==='pending'&&<div className="stack">
           {pending.map(p=><div key={p.id} className="auth-card" style={{marginTop:0,padding:16}}><h3>{p.channel==='ai'?'AI message':p.audio?'Voice capture':'Written capture'}</h3><p className="muted">{new Date(p.captured_at).toLocaleString()}</p>{p.text&&<p className="detail-content" style={{marginTop:8}}>{p.text}</p>}{p.audio&&<AudioPlayback blob={p.audio}/>}<CaptureDownload capture={p}/><p className="muted" style={{marginTop:10,fontSize:'.9rem'}}>{p.error||'Waiting to organize.'}</p></div>)}
@@ -479,6 +523,7 @@ export default function Toolbox(){
           <div className="item-edit-actions"><Button type="button" variant="ghost" onClick={()=>setEditing(false)}>Cancel</Button><Button type="submit" disabled={editBusy||!editTitle.trim()}>Save changes</Button></div>
         </form>:<div className="stack">
           {current.content&&<p className="detail-content">{current.content}</p>}
+          {(current.highlighted||workflowState(current)==='waiting')&&<div className="item-state-line">{current.highlighted&&<span className="state-chip"><Pin/>Highlighted</span>}{workflowState(current)==='waiting'&&<span className="state-chip waiting"><Clock3/>Waiting{current.waiting_on?' on '+current.waiting_on:''}{followUpLabel(current)?' · '+followUpLabel(current):''}</span>}</div>}
           {(current.due_at||current.due_date)&&<p className="due">{dueLabel(current.due_at,current.due_date)}</p>}
           <Button variant="outline" disabled={busy||recording||starting} onClick={()=>void microphone(current.id)}><Mic/>Talk about this item</Button>
           {actionable(current)&&<Button onClick={()=>void changeStatus(current)}>{current.status==='completed'?'Reopen task':'Mark complete'}<Check/></Button>}
@@ -487,6 +532,26 @@ export default function Toolbox(){
           <Button variant="outline" onClick={()=>edit(current)}><PenLine/>Edit details</Button>
           {current.source_text&&<details><summary className="muted">Original capture</summary><p className="detail-source">{current.source_text}</p></details>}
         </div>)}
+      </SheetContent>
+    </Sheet>
+    <Sheet open={!!quickItem} onOpenChange={open=>{if(!open)setQuickItem(null);}}>
+      <SheetContent side="bottom" className="detail-sheet quick-sheet">
+        <SheetTitle>Quick actions</SheetTitle><SheetDescription>{items.find(i=>i.id===quickItem)?.title||'Update this item without opening the full editor.'}</SheetDescription>
+        {items.find(i=>i.id===quickItem)&&((item:Item)=><div className="stack">
+          <div className="quick-action-grid">
+            <Button variant="outline" onClick={()=>void changeStatus(item).then(()=>setQuickItem(null))}>{item.status==='completed'?<Circle/>:<CheckCircle2/>}{item.status==='completed'?'Reopen':'Complete'}</Button>
+            <Button variant="outline" onClick={()=>void moveTomorrow(item)} disabled={editBusy}><Clock3/>Tomorrow</Button>
+            <Button variant="outline" onClick={()=>void toggleHighlight(item)} disabled={editBusy}>{item.highlighted?<PinOff/>:<Pin/>}{item.highlighted?'Unhighlight':'Highlight'}</Button>
+            <Button variant="outline" onClick={()=>void undoItem(item)} disabled={editBusy||!online}><Undo2/>Undo last change</Button>
+          </div>
+          {workflowState(item)==='waiting'?<Button variant="outline" onClick={()=>void resumeWaiting(item)} disabled={editBusy}>Response received / resume task</Button>:<form className="waiting-editor" onSubmit={e=>{e.preventDefault();void saveWaiting(item);}}>
+            <h3>Waiting on someone?</h3><p className="muted">Park it until it needs your attention again.</p>
+            <label><span className="field-label">Waiting on</span><Input value={waitingOn} onChange={e=>setWaitingOn(e.target.value)} maxLength={180} placeholder="Mom, insurance, Jamie…"/></label>
+            <label><span className="field-label">Check back (optional)</span><Input type="date" value={waitingDate} onChange={e=>setWaitingDate(e.target.value)}/></label>
+            <Button type="submit" disabled={editBusy||!waitingOn.trim()}>Mark waiting</Button>
+          </form>}
+          <Button variant="ghost" onClick={()=>{setQuickItem(null);setSelected(item.id);}}>Open item</Button>
+        </div>)(items.find(i=>i.id===quickItem)!)}
       </SheetContent>
     </Sheet>
   </main>;

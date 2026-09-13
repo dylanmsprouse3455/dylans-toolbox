@@ -5,8 +5,13 @@ import {conversationContext,checkedChanges} from './conversation.ts';
 import {isManagedWorkContent,normalizeWorkCaseNumbers,workState,withWorkState} from './work-context.ts';
 const metadata=z.object({id:z.string().uuid(),captured_at:z.string().datetime({offset:true}),time_zone:z.string().min(1).max(100)});
 const workMarker=/^WORK_STATE:\s*(todo|waiting|watching|follow_up)\s*\n?/i;
+const autopilotPlan=z.object({changes:z.array(z.object({item_id:z.string().uuid(),due_date:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),reason:z.string().min(1).max(240)}).strict()).max(30)}).strict();
+const autopilotSchema={type:'object',additionalProperties:false,required:['changes'],properties:{changes:{type:'array',items:{type:'object',additionalProperties:false,required:['item_id','due_date','reason'],properties:{item_id:{type:'string'},due_date:{type:'string'},reason:{type:'string'}}}}}};
+function dateInZone(value:string,timeZone:string){const parts=new Intl.DateTimeFormat('en-US',{timeZone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(value));const part=(name:string)=>parts.find(p=>p.type===name)?.value??'';return part('year')+'-'+part('month')+'-'+part('day');}
+function addDays(day:string,count:number){const date=new Date(day+'T12:00:00Z');date.setUTCDate(date.getUTCDate()+count);return date.toISOString().slice(0,10);}
 export type CaptureConfig={SUPABASE_URL?:string;SUPABASE_ANON_KEY?:string;OPENAI_API_KEY?:string;OPENAI_MODEL?:string};
 export async function handleCapture(request:Request,c:CaptureConfig){
+  let requestMode:'capture'|'overdue'='capture';
   const headers={'Cache-Control':'no-store','Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'authorization, apikey, content-type, x-client-info','Access-Control-Allow-Methods':'POST, OPTIONS'};
   const json=(data:unknown,status=200)=>Response.json(data,{status,headers});
   if(request.method==='OPTIONS')return new Response(null,{status:204,headers});
@@ -26,11 +31,38 @@ export async function handleCapture(request:Request,c:CaptureConfig){
     const parsed=metadata.safeParse({id:form.get('id'),captured_at:form.get('captured_at'),time_zone:form.get('time_zone')});
     if(!parsed.success)return json({error:'Capture details are invalid.'},400);
     const m=parsed.data;
+    requestMode=form.get('mode')==='overdue'?'overdue':'capture';
     let workspace:'personal'|'work'=form.get('workspace')==='work'?'work':'personal';
     let channel:'capture'|'ai'=form.get('channel')==='ai'?'ai':'capture';
     const contextIds=z.object({focus_id:z.string().uuid().optional(),reply_to:z.string().uuid().optional()}).safeParse({focus_id:form.get('focus_id')||undefined,reply_to:form.get('reply_to')||undefined});
     if(!contextIds.success)return json({error:'Conversation details are invalid.'},400);
     try{new Intl.DateTimeFormat('en-US',{timeZone:m.time_zone}).format();}catch{return json({error:'Time zone is invalid.'},400);}
+    if(requestMode==='overdue'){
+      if(!c.OPENAI_API_KEY)return json({error:'Overdue review is unavailable right now. Nothing was changed.'},503);
+      const today=dateInZone(m.captured_at,m.time_zone),latest=addDays(today,21);
+      const overdueResult=await client.from('items').select('id,title,content,area,importance,urgency,due_date,updated_at').eq('user_id',user.id).eq('type','task').eq('status','active').neq('area','Work').is('parent_id',null).eq('workflow_state','active').eq('highlighted',false).is('due_at',null).not('due_date','is',null).lt('due_date',today).order('due_date',{ascending:true}).limit(30);
+      if(overdueResult.error)throw new Error('STORE');
+      const overdue=overdueResult.data??[];
+      if(!overdue.length)return json({rescheduled:[]});
+      const scheduleResult=await client.from('items').select('id,title,area,importance,urgency,due_date,workflow_state,highlighted').eq('user_id',user.id).eq('status','active').neq('area','Work').is('parent_id',null).gte('due_date',today).lte('due_date',latest).order('due_date',{ascending:true}).limit(80);
+      if(scheduleResult.error)throw new Error('STORE');
+      const ai=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:'Bearer '+c.OPENAI_API_KEY,'Content-Type':'application/json'},body:JSON.stringify({model:c.OPENAI_MODEL||'gpt-4.1-mini',store:false,instructions:'You maintain a private personal task schedule. The overdue_items are flexible, date-only, unhighlighted tasks whose original day has passed. Reschedule every overdue item to one reasonable day from today through latest_allowed_date. Higher urgency and importance should move sooner; spread low-pressure work around the existing schedule. Do not create tasks, change wording, invent clock times, or move anything outside overdue_items. Return each overdue item exactly once with a short plain-English reason.',input:JSON.stringify({today,latest_allowed_date:latest,overdue_items:overdue,existing_schedule:scheduleResult.data??[]}),text:{format:{type:'json_schema',name:'overdue_reschedule',strict:true,schema:autopilotSchema}},max_output_tokens:4000}),signal:AbortSignal.timeout(60000)});
+      if(!ai.ok)throw new Error(ai.status===429?'AI_LIMIT':'AUTOPILOT');
+      const payload=await ai.json() as {status?:string;output?:{content?:{type:string;text?:string}[]}[]};
+      if(payload.status!=='completed')throw new Error('AUTOPILOT');
+      const output=payload.output?.flatMap(o=>o.content??[]).filter(o=>o.type==='output_text').map(o=>o.text??'').join('');
+      const plan=autopilotPlan.parse(JSON.parse(output||'{}')),candidates=new Map(overdue.map(item=>[item.id,item])),seen=new Set<string>(),rescheduled:{id:string;title:string;due_date:string;reason:string}[]=[];
+      if(plan.changes.length!==overdue.length)throw new Error('AUTOPILOT');
+      for(const change of plan.changes){
+        const item=candidates.get(change.item_id);
+        if(!item||seen.has(change.item_id)||change.due_date<today||change.due_date>latest)throw new Error('AUTOPILOT');
+        seen.add(change.item_id);
+        const saved=await client.from('items').update({due_date:change.due_date}).eq('id',change.item_id).eq('user_id',user.id).eq('updated_at',item.updated_at).eq('workflow_state','active').eq('highlighted',false).select('id,title,due_date').maybeSingle();
+        if(saved.error)throw new Error('STORE');
+        if(saved.data)rescheduled.push({id:saved.data.id,title:saved.data.title,due_date:saved.data.due_date,reason:change.reason});
+      }
+      return json({rescheduled});
+    }
     const {data:existing,error:existingError}=await client.from('items').select('id,status,source_text,turn_result,area,title,content').eq('id',m.id).eq('type','capture').maybeSingle();
     if(existingError)throw new Error('STORE');
     if(existing?.area==='Work')workspace='work';
@@ -85,6 +117,9 @@ export async function handleCapture(request:Request,c:CaptureConfig){
       organized.items=organized.items.filter(item=>item.area!=='Work');
       organized.updates=organized.updates.filter(change=>context.candidates.get(change.item_id)?.area!=='Work'&&change.area!=='Work');
       for(const item of organized.items){
+        if(item.follow_up_at&&item.follow_up_date)throw new Error('ORGANIZE');
+        if(item.type==='note'||item.type==='reference'){item.workflow_state='active';item.waiting_on=null;item.follow_up_at=null;item.follow_up_date=null;item.highlighted=false;}
+        if(item.workflow_state==='active'){item.waiting_on=null;item.follow_up_at=null;item.follow_up_date=null;}
         if(item.parent_id&&item.depends_on_id)throw new Error('ORGANIZE');
         if(item.parent_id){
           const parent=context.candidates.get(item.parent_id);
@@ -100,7 +135,7 @@ export async function handleCapture(request:Request,c:CaptureConfig){
     if(workspace==='work'){
       for(const item of organized.items){
         if(item.parent_id!==null||item.depends_on_id!==null)throw new Error('ORGANIZE');
-        item.area='Work';
+        item.area='Work';item.workflow_state='active';item.waiting_on=null;item.follow_up_at=null;item.follow_up_date=null;item.highlighted=false;
         if(!isManagedWorkContent(item.content))throw new Error('ORGANIZE');
         item.content=withWorkState(item.content,workState(item.content));
         for(const sub of item.subtasks){
@@ -111,7 +146,7 @@ export async function handleCapture(request:Request,c:CaptureConfig){
       }
       for(const change of organized.updates){
         const prior=context.candidates.get(change.item_id);
-        if(!prior||prior.area!=='Work'||!isManagedWorkContent(prior.content)||change.change_dependency||change.depends_on_id!==null)throw new Error('ORGANIZE');
+        if(!prior||prior.area!=='Work'||!isManagedWorkContent(prior.content)||change.change_dependency||change.depends_on_id!==null||change.change_waiting||change.change_highlighted)throw new Error('ORGANIZE');
         if(change.area!==null)change.area='Work';
         if(change.content!==null&&!workMarker.test(change.content))change.content=withWorkState(change.content,workState(prior.content));
       }
@@ -129,6 +164,7 @@ export async function handleCapture(request:Request,c:CaptureConfig){
     return json(resultTurn);
   }catch(error){
     const code=error instanceof Error?error.message:'UNKNOWN';
+    if(requestMode==='overdue')return json({error:code==='AI_LIMIT'?'AI processing is temporarily unavailable. No overdue tasks were changed.':'Could not review overdue tasks yet. Nothing was changed.'},503);
     if(code==='AUTH')return json({error:'Please sign in again. Your pending capture is safe on this device.'},401);
     const messages:Record<string,string>={
       SETUP:'Storage is being connected. Your capture is saved on this device.',

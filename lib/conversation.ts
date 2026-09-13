@@ -2,7 +2,7 @@ import type {SupabaseClient} from '@supabase/supabase-js';
 import type {Item} from './items.ts';
 import {organizedCapture} from './capture-schema.ts';
 import {isManagedWorkContent} from './work-context.ts';
-const columns='id,type,title,content,area,status,importance,urgency,due_at,due_date,parent_id,depends_on_id,updated_at,completed_at,last_opened_at';
+const columns='id,type,title,content,area,status,importance,urgency,due_at,due_date,parent_id,depends_on_id,workflow_state,waiting_on,follow_up_at,follow_up_date,highlighted,updated_at,completed_at,last_opened_at';
 type PersonalEntity={canonical_name:string;aliases:string[];relationship:string|null;entity_type:'person'|'pet'};
 function turnFocus(content:string){try{const id=JSON.parse(content).focus_id;return typeof id==='string'&&/^[a-f0-9-]{36}$/i.test(id)?id:null;}catch{return null;}}
 function belongs(item:Item,workspace:'personal'|'work'){
@@ -67,8 +67,10 @@ export function checkedChanges(plan:ReturnType<typeof organizedCapture.parse>,ca
     const item=candidates.get(change.item_id);
     if(!item||seen.has(item.id)||change.due_at&&change.due_date)throw new Error('ORGANIZE');
     seen.add(item.id);
-    if((change.status||change.change_due||change.change_dependency)&&!['task','reminder'].includes(item.type))throw new Error('ORGANIZE');
-    if(!change.status&&!change.change_due&&!change.change_dependency&&change.title===null&&change.content===null&&change.area===null)throw new Error('ORGANIZE');
+    if((change.status||change.change_due||change.change_dependency||change.change_waiting||change.change_highlighted)&&!['task','reminder'].includes(item.type))throw new Error('ORGANIZE');
+    if((change.follow_up_at&&change.follow_up_date)||(change.change_waiting&&item.area==='Work')||(change.change_highlighted&&item.area==='Work'))throw new Error('ORGANIZE');
+    if(change.change_waiting&&change.workflow_state===null)throw new Error('ORGANIZE');
+    if(!change.status&&!change.change_due&&!change.change_dependency&&!change.change_waiting&&!change.change_highlighted&&change.title===null&&change.content===null&&change.area===null)throw new Error('ORGANIZE');
     if(change.status&&plan.updates.some(other=>other.item_id===item.parent_id&&other.status))throw new Error('ORGANIZE');
     if(change.change_dependency&&change.depends_on_id){
       const dependency=candidates.get(change.depends_on_id);

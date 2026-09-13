@@ -8,7 +8,7 @@ import {organizedCapture} from '../lib/capture-schema.ts';
 import {dueLabel,attention,type Item} from '../lib/items.ts';
 const owner='11111111-1111-4111-8111-111111111111',other='22222222-2222-4222-8222-222222222222';
 const entry=(id=randomUUID())=>({id,type:'task',title:'Bring catnip to work',content:'',area:'Work',importance:3,urgency:4,due_at:null,due_date:'2026-09-12',parent_id:null,depends_on_id:null});
-const patch=(id:string,version:string,extra:object={})=>({item_id:id,expected_updated_at:version,status:null,change_due:false,due_at:null,due_date:null,title:null,content:null,area:null,change_dependency:false,depends_on_id:null,...extra});
+const patch=(id:string,version:string,extra:object={})=>({item_id:id,expected_updated_at:version,status:null,change_due:false,due_at:null,due_date:null,title:null,content:null,area:null,change_dependency:false,depends_on_id:null,change_waiting:false,workflow_state:null,waiting_on:null,follow_up_at:null,follow_up_date:null,change_highlighted:false,highlighted:null,...extra});
 
 test('Conversation edits are atomic, owner-only, date-aware, and safe to retry',async()=>{
   const db=new PGlite();
