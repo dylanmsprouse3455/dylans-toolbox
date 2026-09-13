@@ -1,0 +1,31 @@
+name: Validate Personal rig polish
+
+on:
+  push:
+    branches: [personal-rig-upgrades]
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: python3 scripts/polish-personal-rig.py
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: Commit polish and remove temporary files
+        run: |
+          rm scripts/polish-personal-rig.py .github/workflows/polish-personal-rig.yml
+          git config user.name dylanmsprouse3455
+          git config user.email dylanm.sprouse3455@gmail.com
+          git add -A
+          git diff --cached --check
+          git commit -m "Polish Personal follow-up and undo behavior"
+          git push origin HEAD:personal-rig-upgrades
