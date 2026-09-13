@@ -8,7 +8,7 @@ export type Item = {
   area: Area; status: 'active' | 'completed'; importance: number; urgency: number;
   due_at: string | null; parent_id: string | null; depends_on_id?: string | null; source_text: string;
   due_date?: string | null;
-  workflow_state?:PersonalWorkflowState|null; waiting_on?:string|null; follow_up_at?:string|null; follow_up_date?:string|null; highlighted?:boolean|null;
+  workflow_state?:PersonalWorkflowState|null; waiting_on?:string|null; follow_up_at?:string|null; follow_up_date?:string|null; highlighted?:boolean|null; visual_asset_id?:string|null;
   capture_id: string | null; created_at: string; updated_at: string;
   completed_at?: string | null; last_opened_at?: string | null;
 };

@@ -1,7 +1,7 @@
 'use client';
 import {useCallback,useEffect,useRef,useState} from 'react';
 import type {Session,SupabaseClient} from '@supabase/supabase-js';
-import {Mic,Square,PenLine,Sun,Layers,CheckCheck,BriefcaseBusiness,House,Wallet,UserRound,Users,Folder,Lightbulb,Inbox,Check,CheckCircle2,Circle,ChevronRight,ArrowLeft,WifiOff,LoaderCircle,Settings2,FileText,Bookmark,CloudUpload,LogOut,ShieldCheck,Box,MessageSquareText,Search,StickyNote,X,MoreHorizontal,Pin,PinOff,Undo2,Clock3,ClipboardPaste} from 'lucide-react';
+import {Mic,Square,PenLine,Sun,Layers,CheckCheck,BriefcaseBusiness,House,Wallet,UserRound,Users,Folder,Lightbulb,Inbox,Check,CheckCircle2,Circle,ChevronRight,ArrowLeft,WifiOff,LoaderCircle,Settings2,FileText,Bookmark,CloudUpload,LogOut,ShieldCheck,Box,MessageSquareText,Search,StickyNote,X,MoreHorizontal,Pin,PinOff,Undo2,Clock3,ClipboardPaste,ImagePlus,Trash2,Sparkles} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {PersonalRecovery} from '@/components/personal-recovery';
 import {Input} from '@/components/ui/input';
@@ -21,6 +21,7 @@ type SpeechEventLike={resultIndex:number;results:ArrayLike<SpeechResultLike>};
 type SpeechRecognitionLike={continuous:boolean;interimResults:boolean;lang:string;onresult:((event:SpeechEventLike)=>void)|null;onerror:(()=>void)|null;onend:(()=>void)|null;start:()=>void;stop:()=>void;abort:()=>void};
 type SpeechRecognitionWindow=Window&{SpeechRecognition?:new()=>SpeechRecognitionLike;webkitSpeechRecognition?:new()=>SpeechRecognitionLike};
 type AiHistoryRow={id:string;source_text:string;turn_result:{reply?:string;needs_clarification?:boolean}|null;created_at:string};
+type VisualAsset={id:string;storage_path:string;title:string;description:string;tags:string[];style:string;mood:string;active:boolean;created_at:string};
 
 const areaIcons={Work:BriefcaseBusiness,Home:House,Money:Wallet,Personal:UserRound,People:Users,Projects:Folder,Ideas:Lightbulb,Inbox};
 const errorText=(e:unknown)=>e instanceof Error?e.message:'Something went wrong. Please try again.';
@@ -36,8 +37,9 @@ export default function Toolbox(){
   const [lastTurn,setLastTurn]=useState<AssistantTurn|null>(null);
   const [aiDraft,setAiDraft]=useState(''),[aiHistory,setAiHistory]=useState<AiHistoryRow[]>([]),[completedQuery,setCompletedQuery]=useState('');
   const [dumpDraft,setDumpDraft]=useState(''),[quickItem,setQuickItem]=useState<string|null>(null),[waitingOn,setWaitingOn]=useState(''),[waitingDate,setWaitingDate]=useState('');
+  const [visualAssets,setVisualAssets]=useState<VisualAsset[]>([]),[visualUrls,setVisualUrls]=useState<Record<string,string>>({}),[visualBusy,setVisualBusy]=useState(false);
   const lastTurnRef=useRef<AssistantTurn|null>(null);
-  const [sheet,setSheet]=useState<'write'|'dump'|'account'|'pending'|null>(null);
+  const [sheet,setSheet]=useState<'write'|'dump'|'account'|'pending'|'visuals'|null>(null);
   const [draft,setDraft]=useState(''),[selected,setSelected]=useState<string|null>(null);
   const [recording,setRecording]=useState(false),[seconds,setSeconds]=useState(0),[starting,setStarting]=useState(false);
   const [liveTranscript,setLiveTranscript]=useState(''),[interimTranscript,setInterimTranscript]=useState(''),[liveWordsAvailable,setLiveWordsAvailable]=useState(true);
@@ -68,6 +70,14 @@ export default function Toolbox(){
     const client=clientRef.current,owner=sessionRef.current?.user.id;if(!client||!owner||!navigator.onLine)return;
     const result=await client.from('items').select('id,source_text,turn_result,created_at').eq('user_id',owner).eq('type','capture').eq('title','AI conversation').eq('status','processed').order('created_at',{ascending:false}).limit(30);
     if(result.error)throw result.error;setAiHistory(((result.data??[]) as AiHistoryRow[]).reverse());
+  },[]);
+  const loadVisualAssets=useCallback(async()=>{
+    const client=clientRef.current,owner=sessionRef.current?.user.id;if(!client||!owner||!navigator.onLine)return;
+    const result=await client.from('personal_visual_assets').select('id,storage_path,title,description,tags,style,mood,active,created_at').eq('user_id',owner).eq('active',true).order('created_at',{ascending:false}).limit(240);
+    if(result.error)throw result.error;const assets=(result.data??[]) as VisualAsset[];setVisualAssets(assets);
+    if(!assets.length){setVisualUrls({});return;}
+    const signed=await client.storage.from('personal-visuals').createSignedUrls(assets.map(asset=>asset.storage_path),43200);if(signed.error)throw signed.error;
+    const byPath=new Map((signed.data??[]).map(row=>[row.path,row.signedUrl]));const urls:Record<string,string>={};for(const asset of assets){const url=byPath.get(asset.storage_path);if(url)urls[asset.id]=url;}setVisualUrls(urls);
   },[]);
   const refresh=useCallback(async()=>{
     const client=clientRef.current,owner=sessionRef.current?.user.id;
@@ -170,9 +180,9 @@ export default function Toolbox(){
         const previous=sessionRef.current?.user.id;
         sessionRef.current=next;setSession(next);
         if(previous!==next?.user.id){
-          updateItems([]);setPending([]);setPendingChanges(0);setSelected(null);setQuickItem(null);setDraft('');setDumpDraft('');setError('');setFeedback('');setSheet(null);setEditing(false);lastTurnRef.current=null;setLastTurn(null);setAiHistory([]);setAiDraft('');setCompletedQuery('');
+          updateItems([]);setPending([]);setPendingChanges(0);setSelected(null);setQuickItem(null);setDraft('');setDumpDraft('');setError('');setFeedback('');setSheet(null);setEditing(false);lastTurnRef.current=null;setLastTurn(null);setAiHistory([]);setAiDraft('');setCompletedQuery('');setVisualAssets([]);setVisualUrls({});
           if(next){
-            try{const [cache,turn]=await Promise.all([cachedItems(next.user.id),cachedTurn(next.user.id)]);if(sessionRef.current?.user.id===next.user.id){updateItems(cache);lastTurnRef.current=turn;setLastTurn(turn);}await updatePending();}catch(e){setError(errorText(e));}
+            try{const [cache,turn]=await Promise.all([cachedItems(next.user.id),cachedTurn(next.user.id)]);if(sessionRef.current?.user.id===next.user.id){updateItems(cache);lastTurnRef.current=turn;setLastTurn(turn);}await updatePending();void loadVisualAssets().catch(()=>{});}catch(e){setError(errorText(e));}
           }
         }
         setReady(true);
@@ -186,7 +196,7 @@ export default function Toolbox(){
     window.addEventListener('online',connection);window.addEventListener('offline',connection);
     return()=>{unmounted.current=true;unsubscribe?.();window.removeEventListener('online',connection);window.removeEventListener('offline',connection);
       if(recorder.current?.state==='recording')recorder.current.stop();recognition.current?.abort();stopSpeaking();};
-  },[updateItems,updatePending]);
+  },[updateItems,updatePending,loadVisualAssets]);
   useEffect(()=>{
     if(!session)return;
     setLoading(true);void sync().finally(()=>{setLoading(false);void runOverdueAutopilot();});
@@ -344,6 +354,30 @@ export default function Toolbox(){
     try{const result=await clientRef.current?.auth.signOut({scope:'local'});if(result?.error)throw result.error;sessionRef.current=null;setSession(null);updateItems([]);setPending([]);setPendingChanges(0);setFeedback('');setSheet(null);setDraft('');setSelected(null);}
     catch(e){setError(errorText(e));}finally{setAuthBusy(false);}
   }
+  async function uploadVisuals(files:FileList|null){
+    const client=clientRef.current,owner=sessionRef.current?.user.id;if(!client||!owner||!files?.length)return;if(!navigator.onLine){setError('Reconnect before adding visuals.');return;}
+    const selected=[...files].slice(0,20);setVisualBusy(true);setError('');let uploaded=0;
+    try{
+      const {data:auth}=await client.auth.getSession();if(!auth.session)throw new Error('Sign in again before adding visuals.');
+      for(const file of selected){
+        if(file.size<=0||file.size>6291456||!/^image\/(jpeg|png|webp|heic|heif)$/.test(file.type))throw new Error('Each visual must be a JPEG, PNG, WebP, or HEIC image under 6 MB.');
+        const extension=(file.name.split('.').pop()||file.type.split('/')[1]||'jpg').replace(/[^a-z0-9]/gi,'').toLowerCase(),path=`${owner}/${crypto.randomUUID()}.${extension||'jpg'}`;
+        const stored=await client.storage.from('personal-visuals').upload(path,file,{cacheControl:'31536000',upsert:false,contentType:file.type});if(stored.error)throw stored.error;
+        const fallbackTitle=file.name.replace(/\.[^.]+$/,'').replace(/[-_]+/g,' ').trim().slice(0,100)||'Visual';
+        const created=await client.from('personal_visual_assets').insert({user_id:owner,storage_path:path,title:fallbackTitle}).select('id').single();
+        if(created.error){await client.storage.from('personal-visuals').remove([path]);throw created.error;}
+        uploaded++;
+        const form=new FormData();form.set('id',crypto.randomUUID());form.set('captured_at',new Date().toISOString());form.set('time_zone',Intl.DateTimeFormat().resolvedOptions().timeZone);form.set('mode','visual_tag');form.set('asset_id',created.data.id);form.set('image',file,file.name);
+        const response=await fetch(captureUrl,{method:'POST',headers:{Authorization:'Bearer '+auth.session.access_token,apikey:publicConfig.key},body:form,signal:AbortSignal.timeout(90000)});
+        if(!response.ok){const result=await response.json().catch(()=>({})) as {error?:string};setError(result.error||'One visual could not be analyzed, but it is still in your library.');}
+      }
+      await loadVisualAssets();setFeedback(`Added ${uploaded} ${uploaded===1?'visual':'visuals'} to Orbit’s private library.`);
+    }catch(e){setError(errorText(e));await loadVisualAssets().catch(()=>{});}finally{setVisualBusy(false);}
+  }
+  async function deleteVisual(asset:VisualAsset){
+    const client=clientRef.current,owner=sessionRef.current?.user.id;if(!client||!owner||!navigator.onLine)return;setVisualBusy(true);
+    try{const removed=await client.from('personal_visual_assets').delete().eq('id',asset.id).eq('user_id',owner);if(removed.error)throw removed.error;const stored=await client.storage.from('personal-visuals').remove([asset.storage_path]);if(stored.error)throw stored.error;await refresh();await loadVisualAssets();setFeedback('Visual removed. Tasks using it were kept.');}catch(e){setError(errorText(e));}finally{setVisualBusy(false);}
+  }
   const current=items.find(i=>i.id===selected);
   function edit(item:Item){
     setEditTitle(item.title);setEditContent(item.content);setEditArea(item.area);setEditType(item.type);setEditImportance(String(item.importance));setEditUrgency(String(item.urgency));
@@ -398,9 +432,10 @@ export default function Toolbox(){
     if(clientRef.current&&navigator.onLine)void clientRef.current.from('items').update({last_opened_at:opened}).eq('id',item.id).eq('user_id',owner).then(({error})=>{if(error)setError('Could not update the opened time.');});
   }
   function row(item:Item){
-    const due=dueLabel(item.due_at,item.due_date),follow=followUpLabel(item),subtasks=items.filter(i=>i.parent_id===item.id),stale=view==='today'&&workflowState(item)!=='waiting'&&unopenedForDay(item),waiting=workflowState(item)==='waiting';
+    const due=dueLabel(item.due_at,item.due_date),follow=followUpLabel(item),subtasks=items.filter(i=>i.parent_id===item.id),stale=view==='today'&&workflowState(item)!=='waiting'&&unopenedForDay(item),waiting=workflowState(item)==='waiting',visual=item.visual_asset_id?visualUrls[item.visual_asset_id]:undefined;
     return <article className={'item '+(stale?'stale-attention ':'')+(item.highlighted?'highlighted-item':'')} key={item.id}>
       {actionable(item)?<button className={'item-check '+(item.status==='completed'?'complete':'')} onClick={()=>void changeStatus(item)} aria-label={(item.status==='completed'?'Reopen ':'Complete ')+item.title}>{item.status==='completed'?<CheckCircle2/>:<Circle/>}</button>:<span className="item-check">{item.type==='note'?<FileText/>:<Bookmark/>}</span>}
+      {visual&&<img className="item-visual" src={visual} alt="" aria-hidden/>}
       <button className="item-body" onClick={()=>void openItem(item)}>
         <div className="item-title">{item.highlighted&&<Pin className="item-pin" aria-label="Highlighted"/>}{item.title}</div>
         <div className="item-meta"><span>{item.area}</span><span aria-hidden>·</span>
@@ -482,8 +517,8 @@ export default function Toolbox(){
     </Tabs>
     <Sheet open={sheet!==null} onOpenChange={open=>{if(!open)setSheet(null);}}>
       <SheetContent side="bottom" className="detail-sheet">
-        <SheetTitle>{sheet==='write'?'Put it down.':sheet==='dump'?'Dump text into Toolbox':sheet==='pending'?'Saved on this device':session?'Your toolbox':'Your private toolbox'}</SheetTitle>
-        <SheetDescription>{sheet==='write'?'One thought or a whole ramble. We’ll find the useful pieces.':sheet==='dump'?'Paste a conversation, message thread, notes, or a big block of text. Toolbox will extract only what you actually committed to or need to keep.':sheet==='pending'?'These will retry while the app is open and connected.':session?'Your thoughts, your space.':'Sign in to save and sync your thoughts across devices.'}</SheetDescription>
+        <SheetTitle>{sheet==='write'?'Put it down.':sheet==='dump'?'Dump text into Toolbox':sheet==='pending'?'Saved on this device':sheet==='visuals'?'Visual Library':session?'Your toolbox':'Your private toolbox'}</SheetTitle>
+        <SheetDescription>{sheet==='write'?'One thought or a whole ramble. We’ll find the useful pieces.':sheet==='dump'?'Paste a conversation, message thread, notes, or a big block of text. Toolbox will extract only what you actually committed to or need to keep.':sheet==='pending'?'These will retry while the app is open and connected.':sheet==='visuals'?'Give Orbit a private box of visual building blocks. It analyzes each image and can reuse the best match on future Personal items.':session?'Your thoughts, your space.':'Sign in to save and sync your thoughts across devices.'}</SheetDescription>
         {sheet==='write'&&<form className="stack" onSubmit={e=>{e.preventDefault();void saveText().catch(e=>setError(errorText(e)));}}>
           <Textarea aria-label="Your thoughts" value={draft} onChange={e=>setDraft(e.target.value)} maxLength={30000} placeholder="Remind me to call Sam tomorrow. Also, the paint we liked was…" autoFocus/>
           <Button type="submit" disabled={!draft.trim()||busy}><Check/>Send to Toolbox</Button>
@@ -498,9 +533,15 @@ export default function Toolbox(){
           {pendingChanges>0&&<p>{pendingChanges} task changes waiting to sync.</p>}
           <Button disabled={busy||!online} onClick={()=>void sync()}>{busy?<LoaderCircle className="spinning"/>:<CloudUpload/>}{busy?'Processing…':'Retry now'}</Button>
         </div>}
+        {sheet==='visuals'&&<div className="stack visual-library">
+          <div className="visual-upload-card"><Sparkles/><div><h3>Give Orbit more visual choices</h3><p className="muted">Select up to 20 images at once. Orbit privately analyzes what each image looks like so it can choose useful matches later.</p></div><label className={'visual-upload-button '+(visualBusy?'disabled':'')}><ImagePlus/> {visualBusy?'Adding…':'Add images'}<input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple disabled={visualBusy} onChange={e=>{void uploadVisuals(e.target.files);e.currentTarget.value='';}}/></label></div>
+          {visualAssets.length?<div className="visual-grid">{visualAssets.map(asset=><article className="visual-card" key={asset.id}>{visualUrls[asset.id]?<img src={visualUrls[asset.id]} alt={asset.description||asset.title}/>:<div className="visual-placeholder"><ImagePlus/></div>}<div className="visual-card-copy"><strong>{asset.title}</strong><span>{[asset.style,asset.mood,...asset.tags.slice(0,3)].filter(Boolean).join(' · ')}</span></div><Button type="button" variant="ghost" size="icon" aria-label={'Remove '+asset.title} disabled={visualBusy} onClick={()=>void deleteVisual(asset)}><Trash2/></Button></article>)}</div>:<div className="empty"><ImagePlus/><h3>No visuals yet.</h3><p>Add photos, art, textures, backgrounds, stickers, or anything else you want Orbit to have available.</p></div>}
+          <p className="quiet-note">The library is private. Orbit sees descriptive metadata during normal task capture, not your entire image collection every time.</p>
+        </div>}
         {sheet==='account'&&(session?<div className="stack">
           <p style={{overflowWrap:'anywhere'}}>{session.user.email}</p><p className="muted"><ShieldCheck size={17} style={{display:'inline',verticalAlign:'middle'}}/> Only your signed-in account can access your items.</p>
           <div className="auth-card" style={{marginTop:0}}><h3>Keep it on your Home Screen</h3><p className="muted" style={{marginTop:8}}>In iPhone Safari, tap Share, then Add to Home Screen. Open it once online before using it offline.</p></div>
+          <Button variant="outline" onClick={()=>setSheet('visuals')}><ImagePlus/>Visual Library{visualAssets.length?` · ${visualAssets.length}`:''}</Button>
           <PersonalRecovery client={clientRef.current!} onRestored={()=>location.reload()}/>
           <p className="muted">Reminders appear in the app when they’re due. This version doesn’t send push notifications.</p>
           {pendingCount>0&&<p className="muted">Your {pendingCount} pending captures or changes stay on this device and resume when you sign back into this account.</p>}
@@ -522,6 +563,7 @@ export default function Toolbox(){
           {(editType==='task'||editType==='reminder')&&<div className="item-edit-pair"><Score label="Importance" value={editImportance} onChange={setEditImportance}/><Score label="Urgency" value={editUrgency} onChange={setEditUrgency}/></div>}
           <div className="item-edit-actions"><Button type="button" variant="ghost" onClick={()=>setEditing(false)}>Cancel</Button><Button type="submit" disabled={editBusy||!editTitle.trim()}>Save changes</Button></div>
         </form>:<div className="stack">
+          {current.visual_asset_id&&visualUrls[current.visual_asset_id]&&<img className="item-detail-visual" src={visualUrls[current.visual_asset_id]} alt="" aria-hidden/>}
           {current.content&&<p className="detail-content">{current.content}</p>}
           {(current.highlighted||workflowState(current)==='waiting')&&<div className="item-state-line">{current.highlighted&&<span className="state-chip"><Pin/>Highlighted</span>}{workflowState(current)==='waiting'&&<span className="state-chip waiting"><Clock3/>Waiting{current.waiting_on?' on '+current.waiting_on:''}{followUpLabel(current)?' · '+followUpLabel(current):''}</span>}</div>}
           {(current.due_at||current.due_date)&&<p className="due">{dueLabel(current.due_at,current.due_date)}</p>}
