@@ -1,0 +1,117 @@
+/* Large Work section cards: turn the old bottom tab strip into the primary Work navigation. */
+main.work-toolbox{display:flex;flex-direction:column;padding-bottom:calc(96px + env(safe-area-inset-bottom))}
+main.work-toolbox>.work-header{order:10}
+main.work-toolbox>.work-error,main.work-toolbox>.work-orbit{order:20}
+main.work-toolbox>.work-bottom-tabs{order:30}
+main.work-toolbox>.work-attention{order:40}
+main.work-toolbox>.work-board{order:50}
+
+main.work-toolbox .work-bottom-tabs{
+  position:static!important;
+  left:auto!important;
+  bottom:auto!important;
+  transform:none!important;
+  width:100%!important;
+  display:grid!important;
+  grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  gap:12px!important;
+  margin:14px 0 4px!important;
+  padding:0!important;
+  background:transparent!important;
+  border:0!important;
+  box-shadow:none!important;
+  backdrop-filter:none!important;
+}
+
+main.work-toolbox .work-bottom-tabs button{
+  position:relative;
+  min-height:132px;
+  width:100%;
+  padding:16px!important;
+  border:1px solid #dfe7f1!important;
+  border-radius:22px!important;
+  background:#fff!important;
+  box-shadow:0 8px 24px #183b680b;
+  display:flex!important;
+  flex-direction:column;
+  align-items:flex-start!important;
+  justify-content:flex-start!important;
+  gap:9px!important;
+  text-align:left;
+  color:#253650!important;
+  font-size:1rem!important;
+  font-weight:800!important;
+  line-height:1.15!important;
+  transition:transform .12s ease,border-color .12s ease,box-shadow .12s ease;
+}
+main.work-toolbox .work-bottom-tabs button:active{transform:scale(.985)}
+main.work-toolbox .work-bottom-tabs button.active{border-color:currentColor!important;box-shadow:0 9px 28px #183b6813,0 0 0 2px currentColor inset}
+main.work-toolbox .work-bottom-tabs button[data-section="done"]{grid-column:1/-1;min-height:112px}
+
+main.work-toolbox .work-tab-icon{
+  position:relative;
+  width:52px!important;
+  height:52px!important;
+  border-radius:16px;
+  display:grid!important;
+  place-items:center;
+  background:#f3f6fa;
+}
+main.work-toolbox .work-tab-icon svg{width:29px!important;height:29px!important;stroke-width:2.4}
+main.work-toolbox .work-tab-icon b{
+  position:absolute!important;
+  top:-7px!important;
+  right:-9px!important;
+  min-width:27px!important;
+  height:27px!important;
+  padding:0 7px!important;
+  border:3px solid #fff!important;
+  border-radius:999px!important;
+  display:grid!important;
+  place-items:center!important;
+  color:#fff!important;
+  font-size:.75rem!important;
+  font-weight:850!important;
+  line-height:1!important;
+  font-variant-numeric:tabular-nums;
+}
+main.work-toolbox .work-bottom-tabs button>span:last-child{max-width:none!important;overflow:visible!important;text-overflow:clip!important;white-space:normal!important;font-size:1.05rem;font-weight:850}
+main.work-toolbox .work-bottom-tabs button::after{display:block;margin-top:auto;font-size:.78rem;font-weight:600;line-height:1.35;color:#718097}
+main.work-toolbox .work-bottom-tabs button[data-section="todo"]::after{content:"Needs your action"}
+main.work-toolbox .work-bottom-tabs button[data-section="waiting"]::after{content:"Waiting on someone else"}
+main.work-toolbox .work-bottom-tabs button[data-section="watching"]::after{content:"Keep an eye on these"}
+main.work-toolbox .work-bottom-tabs button[data-section="follow_up"]::after{content:"Time to circle back"}
+main.work-toolbox .work-bottom-tabs button[data-section="done"]::after{content:"Completed files"}
+
+main.work-toolbox .work-bottom-tabs button[data-section="todo"]{color:#d84248!important;background:#fff9f9!important}
+main.work-toolbox .work-bottom-tabs button[data-section="todo"] .work-tab-icon{color:#ef454b!important;background:#fff0f1!important}
+main.work-toolbox .work-bottom-tabs button[data-section="todo"] .work-tab-icon b{background:#ef454b!important}
+main.work-toolbox .work-bottom-tabs button[data-section="waiting"]{color:#aa7900!important;background:#fffdf6!important}
+main.work-toolbox .work-bottom-tabs button[data-section="waiting"] .work-tab-icon{color:#d89c00!important;background:#fff6d7!important}
+main.work-toolbox .work-bottom-tabs button[data-section="waiting"] .work-tab-icon b{background:#dba000!important}
+main.work-toolbox .work-bottom-tabs button[data-section="watching"]{color:#2179d4!important;background:#f8fbff!important}
+main.work-toolbox .work-bottom-tabs button[data-section="watching"] .work-tab-icon{color:#2685ee!important;background:#eaf4ff!important}
+main.work-toolbox .work-bottom-tabs button[data-section="watching"] .work-tab-icon b{background:#2685ee!important}
+main.work-toolbox .work-bottom-tabs button[data-section="follow_up"]{color:#119a59!important;background:#f8fffb!important}
+main.work-toolbox .work-bottom-tabs button[data-section="follow_up"] .work-tab-icon{color:#15ad65!important;background:#e8faef!important}
+main.work-toolbox .work-bottom-tabs button[data-section="follow_up"] .work-tab-icon b{background:#18b96d!important}
+main.work-toolbox .work-bottom-tabs button[data-section="done"]{color:#667891!important;background:#fafbfd!important}
+main.work-toolbox .work-bottom-tabs button[data-section="done"] .work-tab-icon{color:#72829a!important;background:#edf1f5!important}
+main.work-toolbox .work-bottom-tabs button[data-section="done"] .work-tab-icon b{background:#7c8ca2!important}
+
+main.work-toolbox .work-board{margin-top:12px}
+main.work-toolbox .work-capture-launcher{bottom:calc(10px + env(safe-area-inset-bottom))!important}
+
+@media(max-width:520px){
+  main.work-toolbox{padding-bottom:calc(88px + env(safe-area-inset-bottom))}
+  main.work-toolbox .work-bottom-tabs{gap:10px!important;margin-top:10px!important}
+  main.work-toolbox .work-bottom-tabs button{min-height:126px;padding:14px!important;border-radius:20px!important}
+  main.work-toolbox .work-bottom-tabs button[data-section="done"]{min-height:104px}
+  main.work-toolbox .work-tab-icon{width:48px!important;height:48px!important;border-radius:15px}
+  main.work-toolbox .work-tab-icon svg{width:27px!important;height:27px!important}
+  main.work-toolbox .work-bottom-tabs button>span:last-child{font-size:.98rem!important}
+  main.work-toolbox .work-bottom-tabs button::after{font-size:.72rem}
+}
+
+@media(max-width:350px){main.work-toolbox .work-bottom-tabs{grid-template-columns:1fr!important}main.work-toolbox .work-bottom-tabs button[data-section="done"]{grid-column:auto}}
+@media(prefers-reduced-motion:reduce){main.work-toolbox .work-bottom-tabs button{transition:none}}
