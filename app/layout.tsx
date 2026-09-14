@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import WorkSectionPageBridge from "./work-section-page-bridge";
 
 export const metadata: Metadata = {
   title: "Dylan’s Toolbox",
@@ -25,7 +26,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">{children}<WorkSectionPageBridge/></body>
     </html>
   );
 }
