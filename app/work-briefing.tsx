@@ -6,7 +6,7 @@ import {buildWorkBriefing,nextTimeSensitiveMoment} from '@/lib/work-briefing';
 import {Button} from '@/components/ui/button';
 import './work-briefing.css';
 
-type Props={cases:WorkCase[];onClose:()=>void;onOpenCase:(item:WorkCase)=>void};
+type Props={cases:WorkCase[];error?:string|null;onClose:()=>void;onOpenCase:(item:WorkCase)=>void};
 
 function stripCasePrefix(item:WorkCase){
   return item.title.replace(/^G\d{2}-\d{4}\s*[·—-]?\s*/,'').trim()||item.title;
@@ -39,7 +39,7 @@ const groupIcon={
   recently_completed:CheckCircle2,
 } as const;
 
-export default function WorkBriefing({cases,onClose,onOpenCase}:Props){
+export default function WorkBriefing({cases,error,onClose,onOpenCase}:Props){
   const now=Date.now();
   const briefing=buildWorkBriefing(cases,now);
   const summary=[
@@ -52,13 +52,13 @@ export default function WorkBriefing({cases,onClose,onOpenCase}:Props){
   return <div className="work-briefing-overlay" role="dialog" aria-modal="true" aria-label="Work briefing">
     <section className="work-briefing-shell">
       <header className="work-briefing-top">
-        <div><p className="work-step">Current Work</p><h2>Work Briefing</h2><p>{summary||'Nothing active needs tracking right now.'}</p></div>
+        <div><p className="work-step">Current Work</p><h2>Work Briefing</h2><p>{error?'Could not load the current files.':summary||'Nothing active needs tracking right now.'}</p></div>
         <Button size="icon" variant="ghost" aria-label="Close briefing" onClick={onClose}><X/></Button>
       </header>
 
       <div className="work-briefing-source"><Sparkles/><span>Built from each file’s current state, not old timeline entries.</span></div>
 
-      {briefing.groups.length?briefing.groups.map(group=>{
+      {error?<div className="work-briefing-error"><AlertTriangle/><div><strong>Briefing unavailable</strong><p>{error}</p></div></div>:briefing.groups.length?briefing.groups.map(group=>{
         const Icon=groupIcon[group.key];
         return <section className={'work-briefing-group group-'+group.key} key={group.key}>
           <div className="work-briefing-group-title"><span><Icon/></span><div><h3>{group.label}</h3><p>{group.items.length} {group.items.length===1?'file':'files'}</p></div></div>
