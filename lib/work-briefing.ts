@@ -1,4 +1,4 @@
-import type {WorkCase} from './work-types';
+import type {WorkCase} from './work-types.ts';
 
 export type WorkBriefingGroupKey='needs_you'|'due_soon'|'waiting'|'watching'|'recently_completed';
 
