@@ -99,8 +99,59 @@ main.work-toolbox .work-bottom-tabs button[data-section="done"]{color:#667891!im
 main.work-toolbox .work-bottom-tabs button[data-section="done"] .work-tab-icon{color:#72829a!important;background:#edf1f5!important}
 main.work-toolbox .work-bottom-tabs button[data-section="done"] .work-tab-icon b{background:#7c8ca2!important}
 
-main.work-toolbox .work-board{margin-top:12px}
+/* Home is only the launch grid. The selected list becomes its own full-screen page. */
+main.work-toolbox:not(.work-section-page-open) .work-board{display:none}
 main.work-toolbox .work-capture-launcher{bottom:calc(10px + env(safe-area-inset-bottom))!important}
+
+main.work-toolbox.work-section-page-open .work-board{
+  display:block!important;
+  position:fixed!important;
+  z-index:64;
+  inset:0;
+  margin:0!important;
+  padding:calc(76px + env(safe-area-inset-top)) 14px calc(26px + env(safe-area-inset-bottom));
+  overflow:auto;
+  -webkit-overflow-scrolling:touch;
+  background:#f7faff;
+}
+main.work-toolbox.work-section-page-open .work-section-view{
+  width:min(740px,100%);
+  margin:0 auto;
+  border-radius:22px;
+  box-shadow:0 14px 40px #183b6814;
+}
+main.work-toolbox.work-section-page-open .work-capture-launcher{display:none}
+
+.work-section-page-bar{
+  position:fixed;
+  z-index:72;
+  top:0;
+  left:0;
+  right:0;
+  min-height:calc(62px + env(safe-area-inset-top));
+  padding:calc(10px + env(safe-area-inset-top)) max(14px,calc((100vw - 740px)/2 + 14px)) 10px;
+  display:flex;
+  align-items:flex-end;
+  background:#fffffff4;
+  border-bottom:1px solid #dfe7f1;
+  backdrop-filter:blur(18px);
+  box-shadow:0 8px 24px #183b680d;
+}
+.work-section-page-bar button{
+  min-height:44px;
+  border:0;
+  border-radius:14px;
+  padding:0 13px;
+  display:flex;
+  align-items:center;
+  gap:7px;
+  background:#edf5ff;
+  color:#1d69bf;
+  font:inherit;
+  font-weight:800;
+  font-size:.92rem;
+}
+.work-section-page-bar button:active{background:#e2efff}
 
 @media(max-width:520px){
   main.work-toolbox{padding-bottom:calc(88px + env(safe-area-inset-bottom))}
@@ -111,6 +162,9 @@ main.work-toolbox .work-capture-launcher{bottom:calc(10px + env(safe-area-inset-
   main.work-toolbox .work-tab-icon svg{width:27px!important;height:27px!important}
   main.work-toolbox .work-bottom-tabs button>span:last-child{font-size:.98rem!important}
   main.work-toolbox .work-bottom-tabs button::after{font-size:.72rem}
+  main.work-toolbox.work-section-page-open .work-board{padding-left:8px;padding-right:8px}
+  main.work-toolbox.work-section-page-open .work-section-view{border-radius:18px}
+  .work-section-page-bar{padding-left:10px;padding-right:10px}
 }
 
 @media(max-width:350px){main.work-toolbox .work-bottom-tabs{grid-template-columns:1fr!important}main.work-toolbox .work-bottom-tabs button[data-section="done"]{grid-column:auto}}
