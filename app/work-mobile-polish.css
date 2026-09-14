@@ -1,0 +1,112 @@
+/* Mobile Work polish: one scroll owner for file details, larger launch cards, and a compact Needs attention launcher. */
+
+/* The Work file dialog previously had two nested scroll containers: .work-overlay and .work-detail.
+   iOS can stop transferring pan gestures between nested fixed/overflow containers. Keep the overlay
+   as the only vertical scroll owner so every timeline entry is reachable. */
+.work-overlay[aria-label="Work file details"]{
+  align-items:flex-start!important;
+  overflow-y:auto!important;
+  overflow-x:hidden!important;
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior-y:contain;
+  touch-action:pan-y;
+  padding-top:max(14px,env(safe-area-inset-top))!important;
+  padding-bottom:calc(34px + env(safe-area-inset-bottom))!important;
+}
+.work-overlay[aria-label="Work file details"]>.work-detail{
+  max-height:none!important;
+  height:auto!important;
+  overflow:visible!important;
+  flex:none;
+  margin:0 auto;
+}
+main.work-toolbox.work-section-page-open .work-overlay[aria-label="Work file details"],
+main.work-toolbox.work-attention-page-open .work-overlay[aria-label="Work file details"]{
+  padding-top:calc(78px + env(safe-area-inset-top))!important;
+}
+
+/* Put Needs attention ahead of the launch grid and collapse it into one tappable bar on Work Home. */
+main.work-toolbox>.work-attention{order:25}
+main.work-toolbox:not(.work-attention-page-open) .work-attention{
+  margin:12px 0 4px;
+  border-radius:18px;
+  overflow:hidden;
+}
+main.work-toolbox:not(.work-attention-page-open) .work-attention-heading{
+  min-height:62px;
+  padding:14px 16px;
+  border-bottom:0;
+  cursor:pointer;
+  user-select:none;
+  -webkit-tap-highlight-color:transparent;
+}
+main.work-toolbox:not(.work-attention-page-open) .work-attention-heading::after{
+  content:"Open ›";
+  margin-left:auto;
+  flex-shrink:0;
+  font-size:.82rem;
+  font-weight:850;
+  color:#9a720c;
+}
+main.work-toolbox:not(.work-attention-page-open) .work-attention-heading:active{background:#fff8df}
+main.work-toolbox:not(.work-attention-page-open) .work-attention-list{display:none}
+
+/* Attention opens as its own full-screen Work window, matching the section-page behavior. */
+main.work-toolbox.work-attention-page-open .work-attention{
+  display:block!important;
+  position:fixed!important;
+  z-index:66;
+  inset:0;
+  margin:0!important;
+  padding:calc(78px + env(safe-area-inset-top)) 14px calc(28px + env(safe-area-inset-bottom));
+  overflow-y:auto!important;
+  overflow-x:hidden!important;
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior-y:contain;
+  background:#f7faff;
+  border:0;
+  border-radius:0;
+  box-shadow:none;
+}
+main.work-toolbox.work-attention-page-open .work-attention-heading,
+main.work-toolbox.work-attention-page-open .work-attention-list{
+  width:min(740px,100%);
+  margin-left:auto;
+  margin-right:auto;
+  background:#fff;
+  border:1px solid #eadba8;
+}
+main.work-toolbox.work-attention-page-open .work-attention-heading{
+  border-radius:20px 20px 0 0;
+  border-bottom:0;
+  padding:17px;
+}
+main.work-toolbox.work-attention-page-open .work-attention-list{
+  display:flex!important;
+  border-radius:0 0 20px 20px;
+  overflow:hidden;
+}
+
+/* Slightly larger Work Home launch cards for easier thumb targets and scanning. */
+main.work-toolbox .work-bottom-tabs button{
+  min-height:152px!important;
+  padding:18px!important;
+  border-radius:24px!important;
+}
+main.work-toolbox .work-bottom-tabs button[data-section="done"]{min-height:122px!important}
+main.work-toolbox .work-tab-icon{
+  width:56px!important;
+  height:56px!important;
+  border-radius:17px!important;
+}
+main.work-toolbox .work-tab-icon svg{width:31px!important;height:31px!important}
+main.work-toolbox .work-bottom-tabs button>span:last-child{font-size:1.08rem!important}
+
+@media(max-width:520px){
+  main.work-toolbox .work-bottom-tabs{gap:12px!important}
+  main.work-toolbox .work-bottom-tabs button{min-height:148px!important;padding:17px!important;border-radius:22px!important}
+  main.work-toolbox .work-bottom-tabs button[data-section="done"]{min-height:116px!important}
+  main.work-toolbox .work-tab-icon{width:54px!important;height:54px!important}
+  main.work-toolbox .work-tab-icon svg{width:30px!important;height:30px!important}
+  main.work-toolbox.work-attention-page-open .work-attention{padding-left:9px;padding-right:9px}
+}
