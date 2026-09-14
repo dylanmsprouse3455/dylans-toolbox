@@ -1,5 +1,8 @@
 /* Mobile Work polish: one scroll owner for file details, larger launch cards, and a compact Needs attention launcher. */
 
+/* Hide the extra explanatory sentence under the Work heading. */
+.work-header>div>p:last-child{display:none}
+
 /* The Work file dialog previously had two nested scroll containers: .work-overlay and .work-detail.
    iOS can stop transferring pan gestures between nested fixed/overflow containers. Keep the overlay
    as the only vertical scroll owner so every timeline entry is reachable. */
