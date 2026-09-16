@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import WorkspaceGate from './workspace-gate';
 import WorkSectionPageBridge from './work-section-page-bridge';
+import WorkNotesBridge from './work-notes-bridge';
 import PersonalAreasHomeBridge from './personal-areas-home-bridge';
 import './globals.css';
 
@@ -35,4 +36,4 @@ function keepPwaFresh() {
 }
 
 keepPwaFresh();
-createRoot(document.getElementById('root')!).render(<><WorkspaceGate /><WorkSectionPageBridge /><PersonalAreasHomeBridge /></>);
+createRoot(document.getElementById('root')!).render(<><WorkspaceGate /><WorkSectionPageBridge /><WorkNotesBridge /><PersonalAreasHomeBridge /></>);
