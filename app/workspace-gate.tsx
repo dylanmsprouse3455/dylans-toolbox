@@ -4,7 +4,7 @@ import {useState} from 'react';
 import {ArrowLeft,AudioLines,Box,BriefcaseBusiness,ChevronRight,Share2,UserRound} from 'lucide-react';
 import Toolbox from './toolbox';
 import WorkToolbox from './work-toolbox';
-import {setClientWorkspace} from '@/lib/supabase';
+import {getSupabase,setClientWorkspace} from '@/lib/supabase';
 import './workspace-gate.css';
 
 type Workspace='personal'|'work'|null;
@@ -12,16 +12,16 @@ type Workspace='personal'|'work'|null;
 export default function WorkspaceGate(){
   const [workspace,setWorkspace]=useState<Workspace>(null);
   const choose=(next:Workspace)=>{setClientWorkspace(next);setWorkspace(next);};
-  const openAudio=()=>{
-    const key='toolbox:audio-intelligence-url';
-    let url=window.localStorage.getItem(key);
-    if(!url){
-      url=window.prompt('Paste your private Audio Intelligence link:')?.trim()||'';
-      if(!url)return;
-      try{const parsed=new URL(url);if(parsed.protocol!=='https:')throw new Error();url=parsed.toString();}catch{window.alert('Use the private HTTPS Audio Intelligence link.');return;}
-      window.localStorage.setItem(key,url);
-    }
-    window.location.assign(url);
+  const openAudio=async()=>{
+    const supabase=await getSupabase();
+    const {data,error}=await supabase.from('toolbox_private_config').select('audio_intelligence_url').single();
+    const url=data?.audio_intelligence_url;
+    if(error||!url){window.alert('Audio Intelligence is not configured for this account.');return;}
+    try{
+      const parsed=new URL(url);
+      if(parsed.protocol!=='https:')throw new Error();
+      window.location.assign(parsed.toString());
+    }catch{window.alert('Audio Intelligence has an invalid private address.');}
   };
 
   if(workspace==='personal')return <div className="workspace-active">
