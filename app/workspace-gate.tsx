@@ -1,7 +1,7 @@
 'use client';
 
 import {useState} from 'react';
-import {ArrowLeft,Box,BriefcaseBusiness,ChevronRight,UserRound} from 'lucide-react';
+import {ArrowLeft,Box,BriefcaseBusiness,ChevronRight,Share2,UserRound} from 'lucide-react';
 import Toolbox from './toolbox';
 import WorkToolbox from './work-toolbox';
 import {setClientWorkspace} from '@/lib/supabase';
@@ -38,6 +38,11 @@ export default function WorkspaceGate(){
         <button type="button" className="workspace-card work" onClick={()=>choose('work')}>
           <span className="workspace-card-icon"><BriefcaseBusiness/></span>
           <span className="workspace-card-text"><strong>Work</strong><small>Track actions, responses, follow-ups, and files.</small></span>
+          <ChevronRight className="workspace-chevron"/>
+        </button>
+        <button type="button" className="workspace-card social" onClick={()=>window.location.assign('https://social.dsdigitaldesigns.org/')}>
+          <span className="workspace-card-icon"><Share2/></span>
+          <span className="workspace-card-text"><strong>Social Control</strong><small>Open your protected social dashboard.</small></span>
           <ChevronRight className="workspace-chevron"/>
         </button>
       </div>
