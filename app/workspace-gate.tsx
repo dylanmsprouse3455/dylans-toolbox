@@ -1,7 +1,7 @@
 'use client';
 
 import {useState} from 'react';
-import {ArrowLeft,Box,BriefcaseBusiness,ChevronRight,Share2,UserRound} from 'lucide-react';
+import {ArrowLeft,AudioLines,Box,BriefcaseBusiness,ChevronRight,Share2,UserRound} from 'lucide-react';
 import Toolbox from './toolbox';
 import WorkToolbox from './work-toolbox';
 import {setClientWorkspace} from '@/lib/supabase';
@@ -12,6 +12,17 @@ type Workspace='personal'|'work'|null;
 export default function WorkspaceGate(){
   const [workspace,setWorkspace]=useState<Workspace>(null);
   const choose=(next:Workspace)=>{setClientWorkspace(next);setWorkspace(next);};
+  const openAudio=()=>{
+    const key='toolbox:audio-intelligence-url';
+    let url=window.localStorage.getItem(key);
+    if(!url){
+      url=window.prompt('Paste your private Audio Intelligence link:')?.trim()||'';
+      if(!url)return;
+      try{const parsed=new URL(url);if(parsed.protocol!=='https:')throw new Error();url=parsed.toString();}catch{window.alert('Use the private HTTPS Audio Intelligence link.');return;}
+      window.localStorage.setItem(key,url);
+    }
+    window.location.assign(url);
+  };
 
   if(workspace==='personal')return <div className="workspace-active">
     <div className="workspace-switchbar"><button type="button" className="workspace-switch" onClick={()=>choose(null)}><ArrowLeft/>Work or Personal</button></div>
@@ -43,6 +54,11 @@ export default function WorkspaceGate(){
         <button type="button" className="workspace-card social" onClick={()=>window.location.assign('https://social.dsdigitaldesigns.org/')}>
           <span className="workspace-card-icon"><Share2/></span>
           <span className="workspace-card-text"><strong>Social Control</strong><small>Open your protected social dashboard.</small></span>
+          <ChevronRight className="workspace-chevron"/>
+        </button>
+        <button type="button" className="workspace-card audio" onClick={openAudio}>
+          <span className="workspace-card-icon"><AudioLines/></span>
+          <span className="workspace-card-text"><strong>Audio Intelligence</strong><small>Search recordings, review transcripts, and process new audio on Kali.</small></span>
           <ChevronRight className="workspace-chevron"/>
         </button>
       </div>
