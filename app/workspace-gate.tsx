@@ -1,7 +1,7 @@
 'use client';
 
 import {useState} from 'react';
-import {ArrowLeft,AudioLines,Box,BriefcaseBusiness,ChevronRight,Folder,Share2,UserRound} from 'lucide-react';
+import {ArrowLeft,AudioLines,Box,BriefcaseBusiness,ChevronRight,ClipboardCheck,Share2,UserRound} from 'lucide-react';
 import Toolbox from './toolbox';
 import WorkToolbox from './work-toolbox';
 import {getSupabase,setClientWorkspace} from '@/lib/supabase';
@@ -22,18 +22,6 @@ export default function WorkspaceGate(){
       if(parsed.protocol!=='https:')throw new Error();
       window.location.assign(parsed.toString());
     }catch{window.alert('Audio Intelligence has an invalid private address.');}
-  };
-
-  const openProjectManager=async()=>{
-    const supabase=await getSupabase();
-    const {data,error}=await supabase.from('toolbox_private_config').select('project_manager_url').single();
-    const url=(data as {project_manager_url?:string}|null)?.project_manager_url;
-    if(error||!url){window.alert('Project Manager is built on Kali but its private browser address is not configured yet.');return;}
-    try{
-      const parsed=new URL(url);
-      if(parsed.protocol!=='https:')throw new Error();
-      window.location.assign(parsed.toString());
-    }catch{window.alert('Project Manager has an invalid private address.');}
   };
 
   if(workspace==='personal')return <div className="workspace-active">
@@ -68,19 +56,14 @@ export default function WorkspaceGate(){
           <span className="workspace-card-text"><strong>Social Control</strong><small>Open your protected social dashboard.</small></span>
           <ChevronRight className="workspace-chevron"/>
         </button>
-        <button type="button" className="workspace-card manager" onClick={openProjectManager}>
+        <button type="button" className="workspace-card manager" onClick={()=>window.location.assign('https://social.dsdigitaldesigns.org/project-manager')}>
           <span className="workspace-card-icon"><ClipboardCheck/></span>
-          <span className="workspace-card-text"><strong>Project Manager</strong><small>Review projects, approve batches, contest ideas, and see what is complete.</small></span>
+          <span className="workspace-card-text"><strong>Project Manager</strong><small>Review projects and approve, deny, or contest the next work.</small></span>
           <ChevronRight className="workspace-chevron"/>
         </button>
         <button type="button" className="workspace-card audio" onClick={openAudio}>
           <span className="workspace-card-icon"><AudioLines/></span>
           <span className="workspace-card-text"><strong>Audio Intelligence</strong><small>Search recordings, review transcripts, and process new audio on Kali.</small></span>
-          <ChevronRight className="workspace-chevron"/>
-        </button>
-        <button type="button" className="workspace-card manager" onClick={()=>window.location.assign('https://social.dsdigitaldesigns.org/project-manager')}>
-          <span className="workspace-card-icon"><Folder/></span>
-          <span className="workspace-card-text"><strong>Project Manager</strong><small>See projects, batches, progress, reports, discoveries, and verification.</small></span>
           <ChevronRight className="workspace-chevron"/>
         </button>
       </div>
