@@ -1,7 +1,7 @@
 'use client';
 
 import {useState} from 'react';
-import {ArrowLeft,AudioLines,Box,BriefcaseBusiness,ChevronRight,Share2,UserRound} from 'lucide-react';
+import {ArrowLeft,AudioLines,Box,BriefcaseBusiness,ChevronRight,Folder,Share2,UserRound} from 'lucide-react';
 import Toolbox from './toolbox';
 import WorkToolbox from './work-toolbox';
 import {getSupabase,setClientWorkspace} from '@/lib/supabase';
@@ -59,6 +59,11 @@ export default function WorkspaceGate(){
         <button type="button" className="workspace-card audio" onClick={openAudio}>
           <span className="workspace-card-icon"><AudioLines/></span>
           <span className="workspace-card-text"><strong>Audio Intelligence</strong><small>Search recordings, review transcripts, and process new audio on Kali.</small></span>
+          <ChevronRight className="workspace-chevron"/>
+        </button>
+        <button type="button" className="workspace-card manager" onClick={()=>window.location.assign('https://social.dsdigitaldesigns.org/project-manager')}>
+          <span className="workspace-card-icon"><Folder/></span>
+          <span className="workspace-card-text"><strong>Project Manager</strong><small>See projects, batches, progress, reports, discoveries, and verification.</small></span>
           <ChevronRight className="workspace-chevron"/>
         </button>
       </div>
