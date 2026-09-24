@@ -1,7 +1,7 @@
 'use client';
 
 import {useState} from 'react';
-import {ArrowLeft,AudioLines,Box,BriefcaseBusiness,ChevronRight,ClipboardCheck,Share2,UserRound} from 'lucide-react';
+import {ArrowLeft,AudioLines,Box,BriefcaseBusiness,ChevronRight,Folder,Share2,UserRound} from 'lucide-react';
 import Toolbox from './toolbox';
 import WorkToolbox from './work-toolbox';
 import {getSupabase,setClientWorkspace} from '@/lib/supabase';
@@ -57,7 +57,7 @@ export default function WorkspaceGate(){
           <ChevronRight className="workspace-chevron"/>
         </button>
         <button type="button" className="workspace-card manager" onClick={()=>window.location.assign('https://social.dsdigitaldesigns.org/project-manager')}>
-          <span className="workspace-card-icon"><ClipboardCheck/></span>
+          <span className="workspace-card-icon"><Folder/></span>
           <span className="workspace-card-text"><strong>Project Manager</strong><small>Review projects and approve, deny, or contest the next work.</small></span>
           <ChevronRight className="workspace-chevron"/>
         </button>
